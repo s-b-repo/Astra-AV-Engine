@@ -627,6 +627,36 @@ it (TPM, provenance, a second process, the VM layer, or the crash itself).
 
 ---
 
+## Sensor self-verification — hardware-anchored identity
+
+Self-protection proves the sensor survives tampering. This adds the second proof: that
+what is running *is what the console thinks it is*, anchored in hardware roots rather
+than in host-controlled state. Extends the kernel section's measured-boot work and the
+Phase 7 #1 attestation pipeline from boot-time to the runtime lifecycle.
+
+| Anchor | Verification | Attack class defeated |
+|---|---|---|
+| TPM quote lifecycle | sensor runtime state is quoted at every check-in; console verifies against the EK certificate and the PCR chain, stale/replayed quotes are rejected by freshness window | agent spoofing, stolen-identity replay |
+| DMI/SMBIOS identity | UUID, board serial, product and chassis serial recorded at first enrollment; console flags duplicate serials across the fleet | cloned-host identity theft — two sensors claiming one physical machine |
+| NIC permanent MAC | interface-configured MAC vs the NIC's EEPROM/burned-in address (`ethtool -P` / netlink), divergence is L2 self-misdescription | MAC spoofing and L2 anonymization attempts — the packet guard's egress-spoof row gains a hardware witness |
+| Hardware monotonic counters | monotonic receipts chained into every event stream; console rejects out-of-order sequences under an EK-certified identity | event-stream replay with stolen keys |
+| Entropy-source health | hardware RNG failures degrade the sensor to software entropy as a labeled alert-posted state, never a silent fallback | quiet weak-entropy degradation of the sensor's own crypto |
+
+- [ ] `internal/hwanchor`: quote capture, DMI snapshot, permanent-MAC divergence check;
+  attestation receipts land in the console's fleet/identity surfaces, feeding the
+  identity-continuity row's machine-id collision work.
+- [ ] Honest degradation as a first-class state: no TPM, no EEPROM permanent address,
+  and hardware crypto offload planes render *unverifiable* — labeled degraded in every
+  report and coverage rendering, never silently padded to "verified". The free-reporting
+  honesty rule runs on hardware data too.
+- [ ] Fleet pivots: duplicate serials and MAC divergences join the Threat Graph — "two
+  hosts claim the same hardware identity" is an automatic incident class.
+- [ ] Privacy: DMI/SMBIOS serials are hardware metadata retained under the same
+  host-scope posture as device-plane inventory — class and identity only, no content
+  leaves the host.
+
+---
+
 ## Defense-in-depth hardening — the product is also a target
 
 Every layer of this architecture is itself attackable surface. The stance from the scope
@@ -722,6 +752,37 @@ profile.
 
 ---
 
+## Packet-guard addendum — the IP-plane gaps
+
+The guard's table covered L2 spoof-arrival and the host's own anti-spoof tripwires.
+This extends the plane with the IP/transport checks a host can legitimately run, plus
+the kernel counters it already exposes — same taps, same event model, no second sensor.
+
+| Signal | Detection analytic | Mapping |
+|---|---|---|
+| IP fragmentation plane | oversized/short fragments, overlapping fragments, mid-flow DF-bit flips, fragment-flood cadence vs baseline | — (gap-marked, submission candidate) |
+| TCP-flag plane | malformed-flag sweeps, RST-injection probing of long-lived sessions, cross-checked against conntrack/session state | — (gap-marked) |
+| Neighbor-table churn | `ip neigh` state oscillation and probe storms — L2 enumeration fingerprints reflected in the host's own table | T1046 family (partial) |
+| Raw-socket ownership | AF_PACKET socket inventory vs provenance — who runs packet captures on this host besides the sensor itself | — (counter-surveillance) |
+| Interface creation | tun/tap/gre/sit/wireguard interface creation by non-package lineage — tunnel construction is a channel primitive before it is a traffic pattern | T1572 |
+| Routing-plane tamper | route-table and rpdb rule diffs, XFRM/IPsec/WireGuard state changes vs provenance — a host whose routing is re-described goes quietly blind | — (gap-marked, submission candidate) |
+| Conntrack exhaustion | ct-table pressure cadence — conntrack starvation is a drop-everything interference class against the host's own visibility | T1498 family (partial) |
+| MACsec / crypto offload | macsec interface inventory; the guard sees only post-decryption frames — the boundary is documented, not pretended away | — (honest boundary) |
+
+- [ ] `internal/netguard` extension: these rows ride the same tc/XDP and netlink tap
+  set; kernel drop counters flow through the same "kernel-asserted vs inferred"
+  evidence labeling.
+- [ ] The gap-marked rows stay gap-marked until ATT&CK submissions land upstream —
+  coverage is never padded, per the guard's own rule.
+- [ ] Fragment-plane honesty: if fragment reassembly is attempted at the tap, it is a
+  *new parser* and goes through the Phase 9 fuzzing gate like every other parser —
+  reassembly bugs are a scanner liability, not a free win.
+- [ ] Interface-creation telemetry ties to the cloud/egress sweep: a wireguard
+  interface appearing on a node that runs no VPN workload correlates with the
+  destination-endpoint inventory first, alerts second.
+
+---
+
 ## Cross-system gap sweep — planes the plan still missed
 
 Kernel, firmware, packet and host-state are covered; these are the remaining systems
@@ -786,6 +847,68 @@ observe — this plane's job is to observe it on purpose.
   interception are invisible to the host stack — they are asset-management problems, not
   detection problems, and the plan documents the boundary rather than pretending
   otherwise.
+
+---
+
+## Session-plane sweep — clipboard, capture and agent taps
+
+The Phase 11 matrix covers persistence, execution and the network deeply but leaves the
+*session* thin — the surface a human is actually touching. That is where credential-grade
+secrets move and where most contemporary stealers operate, precisely because it is quiet
+and personal.
+
+| Surface | Attack class | Detection / control |
+|---|---|---|
+| Clipboard | capture-style stealers and wallet-address swap writes (T1115) | selection-event tap + write-diff: address-like text copied, a *different* address-like text pasted; clipboard-manager daemons reconciled against provenance |
+| Screen | grab-and-stage: capture tooling from non-package parents, XRecord/XShm clients, scheduled screenshot jobs with no user action (T1113) | display-access process-set diffing — which processes hold a screen-grab interface in a session nobody is visibly using |
+| Remote access | desktop-sharing software first-seen, and unused-but-listening installs (T1219) | x11vnc/wayvnc/rustdesk-class daemon inventory + outgoing-socket correlate at listen start; deny-by-default policy row for locked-down profiles |
+| Audio | capture-stream holds: source-output registrations, raw capture-node opens (T1123) | audio-graph taps per consumer, first-seen per device node |
+| Video | capture holds plus virtual-camera impersonation via `v4l2loopback` (T1125) | `/dev/video` open table vs package lineage; module-load alert for `v4l2loopback` itself |
+| History | mid-session history tampering: `HISTFILE`/`HISTSIZE=0` runtime sets, history-file truncation diffs (T1070.003) | shell-event telemetry — evidence-labeled, because plenty of humans do this too; the label carries the load |
+| Session-bus persistence | D-Bus activation-service drop-ins, polkit rules granting silent auth, activation Exec landing in user-writable paths (gap-marked — no clean ATT&CK node, submission candidate) | `/usr/share/dbus-1/services` + polkit rules diffs vs provenance |
+| Agent sockets | SSH/gpg-agent socket rebinding and agent impersonation — key material harvested at use time (gap-marked; the nearest ATT&CK family isn't close) | `SSH_AUTH_SOCK` runtime-set telemetry, `$XDG_RUNTIME_DIR` socket diffing, extra agent instances spawned |
+| Sleep hooks | suspend/resume persistence — `/etc/systemd/system-sleep` scripts; the resume window is a quiet, given edge (gap-marked) | sleep-hook dir inventory vs provenance, resume-time execution telemetry |
+| udev rules | runtime-added `.rules` persistence — the device plane's own persistence gap, mirrored here (gap-marked) | rules-file diffs vs package provenance; non-package rules flag |
+
+- [ ] `internal/sessiontap`: one sensor module registers the clipboard, capture, audio and
+  video taps — plug-in so single-module registration keeps the agent-footprint sales
+  point (Phase 7 #7) intact instead of creeping into per-device daemons.
+- [ ] Honest anchoring: clipboard managers, screen-sharers, volume daemons and
+  window-listeners are legitimately alive — analytics anchor on provenance and
+  behavior bandwidth, never on "the tool is suspect" alone.
+- [ ] Session-plane events join the Threat Graph: agent-socket replacement,
+  address-swap clipboard writes and capture-before-exfil are one-hop pivots with
+  compounding edge metadata.
+- [ ] Capture-indicator honesty: host analytics see kernel-open holds; they cannot see
+  or assert hardware states — the covered-camera question is posture advice, not
+  detection, and the report says so.
+
+---
+
+## Cloud-adjacent planes — egress and transfer sweep
+
+Cloud fleets silently face several planes the cross-system sweep hinted at but never
+enumerated. Most rows already use classes Astra taps — the additions are destinations,
+lineages and config diffs, not new telemetry volumes.
+
+| Surface | Attack class | Detection / control |
+|---|---|---|
+| Cloud metadata | instance-metadata credential theft from workloads (T1552.005) | link-local metadata endpoints (169.254.169.254, fd00:ec2::254, 100.100.100.200, metadata.google.internal) alert unless the allowlisted agent process is the caller |
+| Kubernetes node | ServiceAccount-token reads outside kubelet/containerd lineage, static-pod drop-ins, container-API credential stores (T1552.007) | token-file open table per lineage; manifest-dir diffs |
+| Anonymization | anonymizer-LOTL C2 (T1090.003) | tor daemon first-seen + control-port listener; i2p router start; policy-gated inventory |
+| Exfil-vacuum | first-seen cloud-transfer tooling (rclone/restic/borg) and scheduled-job retargeting (T1567.002) | transfer-tool inventory + destination-endpoint first-seen per host; schedule-edit events re-run the destination check |
+| Egress config | DNS-plane tamper: resolv.conf/dnsmasq/systemd-resolved diffs, per-process DoH/DoT adoption, `http_proxy` config injection (extends the packet-layer guard) | config diffs vs provenance + "this process never spoke DoH before" analytics — a host whose DNS plane moved quietly can't see its own C2 |
+| Git plane | repo-shipped hooks exec'ed on first interaction with a clone, smudge/clean filter exec, `core.fsmonitor` process exec (gap-marked — ATT&CK has no clean node; submission candidate) | git-config provenance diffs + repo-dir hook first-run telemetry; filters pointing at user-writable exec paths flag |
+| Network file plane | exec from NFS/CIFS mounts, iscsi initiator retargeting (gap-marked) | mount-flag posture audit (noexec where policy says), per-exec mount-origin attribution, initiator config diffs |
+| Language ecosystems | hook persistence beyond distro packaging — npm postinstall, pip `.pth` + `sitecustomize`, `setup.py`, cargo `build.rs`, `NODE_OPTIONS` (T1546.016 extension) | the same provenance-diff mechanics as the package-hook row, keyed per ecosystem |
+
+- [ ] `internal/cloudplane`: the metadata tap and token-file table ship default-on for
+  cloud fleets; token lineage reconciles against kubelet/containerd judgments first.
+- [ ] Destination-endpoint inventory persists per-host exactly like device- and
+  NIC-first-seen.
+- [ ] Canary extension — honeycred: planted token-shaped strings in predictably-read
+  credential stores, which only an attacker ever reaches; the zero-FP class of the
+  canary-file primitive extends from files to credentials.
 
 ---
 
@@ -954,6 +1077,47 @@ Phase A (fleet + policy + detection lifecycle, shippable paid tier) → Console 
 
 MCP and the evasion suite are the OSS credibility plays. They make the engine worth
 adopting and they are the two things a commercial EDR will never publish.
+
+---
+
+## Blind-spot inversion — their thin spots, then ours again
+
+Two directions, both honest: the classes the wider detection market has historically
+left thin, each claimed against the row of this plan that owns it (so differentiation
+stays checkable against the plan, not against vibes), and a third round of self-audit
+on what this plan still doesn't have after every sweep above.
+
+**Their thin spots → our rows**
+
+| Class | Where other stacks historically stay thin | Row here that owns it |
+|---|---|---|
+| Linux-native persistence | endpoint products tuned to Windows telemetry treat Linux surfaces generically | the full Phase 11 matrix + the session/cloud sweeps |
+| Boot-chain and firmware | usually not an endpoint product at all — a separate SKU or outsourced | Phase 8 |
+| Runtime-provenance verification | SBOM tooling produces manifests; sensors rarely verify them against running state | provenance DB (Phase 7 #5) |
+| CI/CD and ephemeral workloads | per-host agent models assume long-lived machines | cross-system sweep + orchestrator plane |
+| Cross-host L2 corroboration | per-host views only; IP→MAC churn is rarely correlated fleet-wide | Threat Graph (Phase 7 #8) |
+| Document stego / fileless | signature engines skip both; behavior engines skip the first | NOVEL rows (Phase 10) |
+| Kernel-BPF implants | agents that are themselves eBPF rarely audit hostile BPF | kernel section's bpffs/pinned-state inventory |
+| Self-attestation | agents rarely attest their own runtime integrity | hardware-anchor section |
+| Hardware-witnessed endpoint identity | MAC/hostname spoofing checked in software only | NIC permanent-MAC row |
+| EOL OS continuity | support matrices drop EOL distros years before fleets do | platform support policy |
+| Honest coverage reporting | "all detections" pillars with nothing behind them | `cau coverage` gap-marks and the Phase 1 gates |
+
+**Ours still open — round three of the self-audit**
+
+| Open row | Why it's a gap | Ask |
+|---|---|---|
+| Rename-storm cadence | mass permission/ownership alerts exist; the canonical ransomware tripwire — rapid rename/extension mutation on data directories — is absent | write-volume + rename-cadence detector in the behavior engine, measured in Phase 1 |
+| Provenance beyond packaging | the provenance DB anchors distro packages; npm/cargo/pip installs, snap/flatpak/appimage, vendored and hand-built binaries have no anchor classes — the language-ecosystem sweep row silently depends on them | extend Phase 7 #5 with per-ecosystem anchor classes |
+| Event-vault at-rest crypto | console hardening covers auth, supply and anti-rollback; the event store's at-rest encryption and key rotation is never stated | console-vault row in the hardening section |
+| Retention and data governance | retention windows, subject-rights workflow, deletion propagation for sensor/behavior metadata: unplanned | data-governance row — retention policy and deletion paths tested like code |
+| IR playbook library | the console ships response APIs; no operational playbook content rides the top Linux detections | pre-written runbook pack per top-20 detection, versioned and reviewed like detection content |
+| `cau selftest` | a sensor can fall out of coverage silently — tap dead, BPF misload, kernel-gated, clock skew | one-command self-verification rendered in the console and gating fleet health |
+| Release architecture matrix | the build matrix ships amd64; arm64 is implied, riscv64 uncommitted | architecture matrix in the release workflow, gates equal across arches |
+
+- [ ] The inversion table is re-checked against the live coverage matrix at the same CI
+  gate: a "thin spot" whose owning row regresses to planned/none re-opens the claim, so
+  differentiation statements age with the product instead of rotting into marketing.
 
 ## Closing the loop — the four limits, owned
 
