@@ -1119,6 +1119,107 @@ on what this plan still doesn't have after every sweep above.
   gate: a "thin spot" whose owning row regresses to planned/none re-opens the claim, so
   differentiation statements age with the product instead of rotting into marketing.
 
+## The path to ten — category, not scoreboard
+
+On the commercial-EDR board a ten is unwinnable without becoming that vendor — fleet-years,
+install-base and data opacity are structural. So the ten lives on a different board: the
+YARA/Sigma/Zeek outcome, becoming the layer the field plugs into rather than the product
+that wins their scoreboard. Four components, each with its reason incumbents can't follow:
+
+| Component | What it is | Why incumbents can't follow |
+|---|---|---|
+| Third-party scoring gate | the Phase 1 harness accepts external engines, Sigma-class rule packs and vendor coverage claims; per-technique FP/FN and evasion-distance publish for whoever submits | entering means publishing numbers their franchise has never published; staying out means being measured anyway |
+| Prevalence co-op | opt-in class-level behavioral telemetry federation — taxonomy only, no content, no endpoint names, retention contract written before any data flows | a data moat built from openness: participants join because they own their data, not because they were locked in |
+| Honesty-index instrument | free-reporting rules rendered as a scriptable index (coverage gap-marks, measured FP, selftest health) that buyers, auditors and insurers can run themselves | transparency becomes procurement infrastructure; trust-based channels can't follow without confessing on themselves |
+| Substrate posture | engine as an embeddable detection layer (appliances, gateways, SIEM packs, CI platforms) plus the MCP agentic surface | complements get helped by vendors in ways competitors never are |
+
+The data axis flips from sensor-years (time × agents installed) to environment-hours
+(breadth of environments × runs per day) — CI- and ephemeral-native collection is the one
+axis where open beats installed-agent fleets without needing their scale.
+
+- [ ] Third-party submissions pipeline: signed manifests, the same CI gates, a published
+  scoreboard. The one thing that must never happen is refusing to measure an engine that
+  shows up — the index's value is precisely that it measures everyone who enters.
+- [ ] Co-op governance: the free-reporting privacy rules apply to federation itself; a
+  co-op drifting into a data broker is a named failure mode in the governance section.
+- [ ] Honesty-index v0: render coverage, Phase 1 results and selftest health into a
+  single scriptable artifact now; v1 adds the third-party columns.
+- [ ] Substrate track: an embedding guide plus a stable detection-API contract; the MCP
+  surface grows coverage and eval tools next to the scan tools.
+- [ ] Honest boundary: this path's schedule is market-gated, not code-gated — adoption,
+  not engineering, is the limiting resource. The ten-path runs parallel to
+  closing-the-loop and never replaces shipping the boxes.
+
+---
+
+---
+
+## Standards program — writing the bar, not meeting it
+
+The ten-path defines becoming the layer the field plugs into; this defines what "plugged
+in" means concretely: specifications Astra publishes that are *stricter than industry
+practice*, each shipping with a conformance suite from day one — because a standard
+nobody can test is marketing.
+
+| Standard | What it sets | Industry state | Artifact + conformance |
+|---|---|---|---|
+| Detection-evidence contract | every shipped detection carries a provenance manifest, model card, per-technique FP/FN, last-measured date, bypass-regression state | vendor content ships with nothing comparable public | manifest schema + validator any vendor can run against their own content |
+| Evidence-class labels | telemetry stratified by derivation: kernel-asserted / subsystem-confirmed / inferred, per event class | surveys count signals; nobody labels how each was derived | label schema + cross-check suite |
+| Coverage honesty | gap-marks, planned/partial/detected states, no-padding render rules | coverage claims are marketing artifacts | `cau coverage` spec + independent re-checker |
+| TTD metric | per-technique time-to-detect published with measurement conditions | eval programs measure it; vendors don't publish per-technique | open TTD harness spec + fixtures |
+| Evasion-distance | per-technique, measured against the regression corpus, signed | not measured publicly anywhere | no precedent — the spec is written wherever it is invented |
+| Event-loss accounting | drops by class with the fairness policy, published per sensor build | silent drops are the industry default | drop-account schema, verified by the CI benchstat runs |
+| Eval-interchange fixtures | blue/red paired synthetic corpus format, versioned, license-clean, importable into other harnesses | eval corpora are private or ad-hoc | fixture-pack spec + importers; Sigma pairing where shapes overlap |
+| Sensor-health contract | `selftest` schema: taps-alive, BPF-loaded, kernel-gates, clock-skew, hwanchor state as a readiness surface | agents ship health checks with no open contract | selftest schema + console/helm probe integration |
+| Event-transparency profile | per-class privacy boundary + retention contract as machine-readable config, the free-reporting rules encoded | privacy posture ships as a PDF | profile schema + policy evaluator |
+
+- [ ] `specs/` directory: every standard is a versioned spec document plus a reference
+  validator, semvered so adopters never churn.
+- [ ] Conformance as the credibility engine: the same suite that gates Astra's CI runs
+  as `cau verify-spec <artifact>` — adopters self-test without shipping anything here.
+- [ ] Adoption track: three early integrations per spec (one SIEM sink, one fleet tool,
+  one eval harness) landed through the co-op's open-governance route, never through
+  NDA-style silence.
+- [ ] Interop anchoring: every spec imports and exports Sigma, STIX/TAXII and ECS where
+  they overlap — strictness is layered on the norms that exist, never cut off from them.
+- [ ] Honest boundary: a standard only Astra meets is a requirement, not a standard.
+  Adoption re-checks ride the same CI gate as the inversion table — a spec whose only
+  passing conformance is Astra's own regresses to "requirement," and the coverage
+  render says so in place of the claim.
+
+---
+
+## Detection-methodology rating — versus industry practice
+
+Industry methodology decomposes into four instruments: ATT&CK Evaluations-style
+emulation scoring (external, technique-level, per-behavior), the telemetry-survey axis
+(EDR-Telemetry-Project-style breadth mapping), commercial engine labs
+(AV-Comparatives/SE-Labs style detection-rate testing with FP weighting), and vendor
+internal regression corpora — the thing most products actually gate on. Honest grades
+for this plan's execution at the done-right standard:
+
+| Axis | Industry practice | Astra at standard | Grade |
+|---|---|---|---|
+| Coverage definition | technique matrices, Windows-clean, mostly post-hoc | full Linux matrix with per-technique analytic owner + gap-marks | A on Linux; nothing comparable market-wide |
+| Validation independence | external emulation ranges running adversary traces | own synthetic blue/red fixtures, CI-gated | B — below the evals' standard until the third-party scoring gate lands |
+| Content regression | vendor-internal corpora, rarely per-merge | every merge CI-measured against the bypass corpus; eval regressions fail releases | A — stricter than common practice |
+| FP accounting | lab-tested and weighted, opaque per-technique | per-technique FP/FN numbers published | A |
+| Evasion-distance | not measured publicly by vendors | published per technique | A — no industry precedent to follow |
+| Telemetry honesty | survey taxonomy | kernel-asserted/inferred labels + drop accounting | A — stricter |
+| Behavior-model maturity | fleet-scale incident corpora | small-corpus, planned Phase 5 ladder | C+ — honest until fleet-years |
+| Prevention efficacy | graded axis (block vs detect) | detection-first with quarantine | C — a parallel axis, owned honestly |
+| Time-to-detect | measured latencies, headline numbers | no per-technique TTD metric planned | C — addable, listed below |
+| Environment diversity | multi-OS and multi-version emulation matrix | kernel/glibc spread only thinly planned | B- — fixtures matrix needed |
+
+- [ ] Per-technique time-to-detect joins the Phase 11 renderings — it is the industry's
+  headline number and the plan currently doesn't say it.
+- [ ] A fixtures matrix across kernel/glibc/architecture variants joins Phase 1, so the
+  environment-diversity row moves from B- to A at eval time.
+- [ ] The third-party scoring gate is simultaneously the independence fix — the same
+  component moves both rows that grade below B.
+
+---
+
 ## Closing the loop — the four limits, owned
 
 The plan's own critique surfaces four standing limits. Each gets a workstream rather
