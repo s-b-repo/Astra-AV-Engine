@@ -332,6 +332,24 @@ network-isolated integration test. Falcon's disconnected mode is a constrained c
 for regulated/government buyers, air-gap parity is a hard requirement, and it is a
 requirement this architecture was born with.
 
+### FOSS SIEM sink matrix (extends #9)
+
+One event model in, N formats out: every console/sensor sink serializes the same
+internal findings object; per-SIEM payload differences are profiles, not divergent
+schemas. Drift between them is a CI failure.
+
+- [ ] Wazuh — RFC 5424 syslog + CEF, decoder-compatible fielding
+- [ ] Security Onion — ECS-JSON syslog + a STIX 2.1/TAXII feed
+- [ ] OpenSearch Security Analytics — OTLP and ECS bulk over HTTP
+- [ ] OSSIM — CEF/LEEF over syslog
+- [ ] Matano — OCSF-JSON (Apache-2.0, the youngest of the five)
+- License-honesty footnote: Graylog (SSPL) and Elastic Security (Elastic License 2.0)
+  are widely deployed and supported as sinks, but are not OSI-FOSS — the marketing
+  never calls them open source, and the matrix above is what the word means here.
+- [ ] Conformance fixtures per standard ship with the schemas: one RFC 5424 frame, one
+  CEF event, one GELF message, one ECS doc, one OCSF object, one OTLP batch — each
+  round-trip-parsed in CI so a sink update cannot silently break ingestion.
+
 ---
 
 ## Phase 8 — Firmware & boot-chain scanning (the shared blind spot)
@@ -585,6 +603,214 @@ it (TPM, provenance, a second process, the VM layer, or the crash itself).
   higher-privilege verifier. Nothing inside a compromised kernel is trusted to declare
   itself clean.
 
+**Kernel-gap sweep (added audits):**
+- [ ] Hardening posture as a report class: kernel sysctl/integrity state —
+  `kptr_restrict`, `dmesg_restrict`, `yama.ptrace_scope`, `unprivileged_bpf_disabled`,
+  `perf_event_paranoid`, `modules_disabled`, `module.sig_enforce`, `kexec_load_disabled`,
+  `bpf_jit_harden`, lockdown mode — rendered per host with drift alerts on change events
+  (sysctl write watch). Posture is reported honestly; blocking still belongs to
+  BPF-LSM, not to scolding the operator's config.
+- [ ] Kernel-memory access channels: audit opens of `/dev/mem`, `/dev/kmem` and
+  `/proc/kcore`; unexpected access alerts and escalates straight to crash capture
+  (these are the classic direct paths to kernel tampering).
+- [ ] Cross-view process reconciliation: `/proc/loadavg`'s scheduler thread counter vs.
+  the enumerated task list. A mismatch is a hidden-process tripwire that escalates to
+  the kdump verifier — neither view is trusted alone, and the dump is the tiebreak.
+- [ ] Hidden-module reconciliation in the dump: module-object walk inside the crash
+  image vs. `/sys/module` enumeration — memory truth over runtime truth, closing the
+  hidden-LKM seam that the runtime drift check cannot see.
+- [ ] `io_uring` coverage fixture: CI asserts BPF-LSM file-operation hooks observe
+  ops issued through `io_uring` (a known audit/monitoring seam). If the seam exists,
+  it closes at the LSM layer — never by pretending the API is not used.
+- [ ] BPF surface inventory: bpffs mounts, pinned maps and programs, JIT hardening
+  state — extends NOVEL-010's attach-point coverage to the filesystem side of BPF.
+
+---
+
+## Defense-in-depth hardening — the product is also a target
+
+Every layer of this architecture is itself attackable surface. The stance from the scope
+note applies upward: assume the components are discoverable, and make discovery
+pointless by making attacks fail — never by hiding.
+
+**Engine (CLI/library)**
+- [ ] Read-only by construction: scanning never executes or writes sample content; the
+  MCP path is the only sandboxed exception (Phase 3).
+- [ ] Renderer injection closed: file paths, threat names and rule metas are data to
+  every report renderer (text/JSON/SARIF) — structured and escaped, never concatenated
+  into templates; a fixture with hostile filenames runs in CI.
+- [ ] Resource exhaustion pinned: per-run budgets (jobs, memory, time, decompression
+  caps) verified against the adversarial fixture corpus from the Phase 9 fuzzing work.
+
+**Sensor (host)**
+- [ ] Privilege separation: a minimal privileged collector (eBPF/LSM) and an
+  unprivileged analysis process joined by a credentials-checked unix socket
+  (SO_PEERCRED) — a compromised analysis side cannot touch kernel telemetry or load
+  rules into the collector.
+- [ ] SELinux/AppArmor policy modules ship in the package; no listening network ports on
+  the host (console-relay model with mTLS and per-identity keys).
+- [ ] Runtime artifacts hard-permissioned (root-owned, 0640) — nothing world-readable
+  that doubles as recon material for T1562 kill-pool attacks, which are themselves a
+  detection row (Phase 11).
+
+**Console (server)**
+- [ ] Rootless containers, distroless runtime images (no shell inside), `cap_drop: ALL`,
+  secrets only in the platform keychain/KMS, TLS everywhere.
+- [ ] Auth hardening as a checked posture: no default credentials (first admin is a
+  one-time bootstrap token), lockout policy on auth failures (the console's own T1110
+  row), CSP/CSRF/cookie flags and endpoint rate limits verified in CI, step-up approval
+  for irreversible actions (pairs with the exclusions governance).
+- [ ] Audit log is append-only at the storage layer, so a compromised console process
+  cannot rewrite history.
+
+**Distribution (signed update channel)**
+- [ ] Anti-rollback protection: a persisted, monotonic minimum-version floor — a validly
+  signed *old* bundle must be refused. The classic gap in otherwise-correct signed
+  update schemes, now closed in `cau update` and the air-gap bundles alike.
+- [ ] Reproducible builds + SBOM + SLSA attestations (Phase 7 #1, Phase 9) close the
+  supply chain end-to-end; the Phase 4 release channel inherits all three.
+
+**MCP / analysis agents**
+- [ ] Path allowlists, size caps and timeouts (Phase 3 non-negotiables), plus evidence
+  minimization: raw sample content stays in the sandbox — agents receive verdicts and
+  bounded excerpts, never verbatim payloads (the injection-defense surface owned by
+  Phase 7 console governance).
+
+**On "stop them from looking for this":** enumeration of the agent is assumed. What it
+buys an attacker is bounded by construction — kill-pools matching agent names trip the
+NOVEL-005 row, name-independent supervisors keep firing (self-protection section),
+tamper fails closed, and a kill attempt escalates to crash capture. Camouflage and
+anti-detection styling of our own components remain refused under the scope note:
+discovery resistance here means attack failure, not invisibility.
+
+---
+
+## Packet-layer guard — L2/L3 spoofing from the host's eye
+
+Phase 11 covers host behavior; this covers the bearer layer. Host-based honesty up front:
+a single host cannot fully verify a switching fabric, so the guard owns the narrow,
+truthful slice it *can* see — kernel-asserted events and packet taps — labeled by
+evidence class, alert-only by default, with inline drop only as an opt-in per-host
+profile.
+
+| Signal | Detection analytic | Mapping |
+|---|---|---|
+| ARP conflict / IP→MAC churn | netlink duplicate-address events (kernel-asserted) + gratuitous-ARP rate + ARP table churn entropy | T1557.002 |
+| Rogue DHCP | multiple OFFER sources within a lease window vs. lease history | T1557.003 |
+| DHCP starvation | NAK/DECLINE storms and lease-exhaustion cadence around the host | — |
+| LLMNR / NBT-NS / mDNS poisoning | the host answers only names it owns; an answer from *another* host for one of ours is the tripwire | T1557.001 |
+| IPv6 RA spoofing / router churn | conflicting RAs, multiple router claims, DAD conflicts | T1557 family (no dedicated ATT&CK sub-technique — noted honestly) |
+| Martian / spoofed-local ingress | rp_filter drop counters + TTL-floor check (a packet claiming a same-subnet source with a remote-hop TTL is lying) | anti-spoof, ingress |
+| Egress spoof check | outbound frames sourced from an IP not configured on the interface, or prefix/MAC mismatch — a compromised stack, a relay, or an injected frame | anti-spoof, egress |
+| ICMP redirect ingress | kernel event tap — a classic MITM primitive that should not exist on a configured host | MITM primitive |
+| BPDU / LLDP / CDP surprises | a host never speaks STP; unexpected LLDP/CDP from a non-switch MAC means rogue infrastructure on the wire | — |
+| VLAN double-tag (QinQ) arrival | extra 802.1Q tags on an access-port frame — VLAN-hopping recon | — |
+| Resolver answer anomalies | NXDOMAIN-then-success oscillation and TTL-zero corporate names — cache-poisoning fingerprints seen from the local resolver | MITM (DNS) |
+
+- [ ] `internal/netguard`: eBPF tc/XDP taps plus netlink/proc event taps, feeding the one
+  internal event model (all sink formats behave per the Phase 7 #9 matrix), with the
+  "kernel-asserted vs inferred" evidence labeling required by the free-reporting rules.
+- [ ] Both directions: every analytic runs ingress (spoofed arrival) and egress
+  (compromised stack or injected frame going out).
+- [ ] Fleet corroboration through the Threat Graph (#Phase 7 #8): one host observing a
+  MAC claiming the gateway is suspicion; three hosts observing the same MAC within an
+  hour is a fleet incident — cross-host IP→MAC churn history upgrades single-host alerts
+  automatically.
+- [ ] ATT&CK rows land in the Phase 11 `frameworks` object and the coverage matrix; the
+  two honest gap-marked rows (RA spoofing, DHCP starvation) stay gap-marked until their
+  ATT&CK submission lands upstream — coverage is never padded.
+
+---
+
+## Cross-system gap sweep — planes the plan still missed
+
+Kernel, firmware, packet and host-state are covered; these are the remaining systems
+where an attacker operates underneath normal EDR visibility. Same rules as everywhere:
+provenance is the benign anchor, evidence class is labeled, and every row lands in the
+coverage matrix via the Phase 11 `frameworks` object.
+
+| Plane | Gap in the current plan | Deliverable |
+|---|---|---|
+| Identity (sudo/SSSD/FreeIPA/SSH keys) | PAM/cron/systemd inventories exist; identity *config* drift is unmonitored | `internal/identity`: sudoers.d churn, new group-sudo members, sssd/IdP config diffs, authorized_keys and ssh_config (ProxyCommand) drift per host — extends the fleet key-reuse row (T1021.004) with per-host state |
+| Trust store | MITM enabler nobody watches: root-CA additions/removals, per-app NSS trust churn, world-readable key material | drift watch on system + NSS trust stores; pairs with Phase 2 signer-implausibility work and the netguard MITM rows (T1557) |
+| Log continuity | T1070.002 clears logs; journald has no native tamper-evidence | shipper writes a hash-chained continuity header per rotation; "gap" and "rewind" alerts at console; volume-vacuum events alert |
+| Time continuity | clock manipulation defeats cross-host correlation silently | clock-step and chrony/NTP tamper events as sensor telemetry; console-side cross-host monotonicity check — a host whose timeline steps backwards against fleet consensus is flagged, correlation queues freeze rather than mis-order |
+| Devices (USB/HID) | removable media and input capture invisible today | new-device inventory (vendor/product first-seen), HID grabber detection (EVIOCGRAB and `/dev/input` readers outside an interactive session — T1056.001), and an engine hook to auto-scan mounted removable media |
+| Container escape seams | scan-time coverage exists (Phase 9); runtime escape indicators do not | socket-permission audits (docker/containerd sockets), privileged-container telemetry, cgroup `release_agent` writes and `nsenter` host-pivot alerts (T1611 family) at the sensor |
+| BMC / out-of-band (Redfish) | Phase 8 covers host firmware; BMCs are the unowned floor beneath it | console-side Redfish periodic audit: BMC firmware inventory, default-credential fingerprint, BMC-LAN segmentation state — gap-marked in ATT&CK until a mapping exists upstream |
+| CI runner profile | build hosts self-scan today by hand | a sensor *mode* for ephemeral CI hosts: short-lived identity, secrets-usage telemetry, artifact hash gates on outputs — the LOTP intake supplies the abuse catalog |
+| Memory residue (swap/hibernate) | memory remnants unexamined between boots | engine offline pass: `cau scan --swap <partition|image>` with the same one-read discipline; console IR mode schedules it with crash captures |
+| Fleet identity continuity | sensor identity is long-lived IP; theft or collision is unhandled | identity key rotation with revocation windows, machine-id collision alerts at console, and revocation propagation checked in the same CI that tests update channels |
+
+- [ ] Every row: kernel-asserted signal preferred, inferred labeled as inferred; the
+  two ATT&CK-unmapped rows (BMC, memory residue) ship gap-marked like the packet guard's
+  already do.
+- [ ] Nothing here adds telemetry collection of content — devices, keys, configs and
+  logs are inventoried as state, not read as payloads, keeping the privacy stance of the
+  reporting rules intact.
+
+---
+
+## Device & USB plane — the full sweep
+
+The gap-sweep row covered the entrée (first-seen inventory, HID grabber detection,
+mount-time scan). This extends the device plane to its full extent, class by class, with
+the same evidence-labeling and provenance rules. Most of what malware does over USB is behavior the host stack *can*
+observe — this plane's job is to observe it on purpose.
+
+| Surface | Attack class | Detection / control |
+|---|---|---|
+| HID keyboards | keystroke-injection hardware (automation cadence, not human typing) | inter-key timing uniformity metrics, typing during dead-silent sessions, HID descriptor anomalies (composite device with a vendor-specific class riding along) |
+| HID without hardware | software-injected input via `uinput` | `uinput` module load and `/dev/uinput` node creation events, reconciled against package provenance |
+| HID over Bluetooth | mousejacking / keystroke injection over unencrypted HID profiles | duplicate-event accounting (two sources feeding one device), BT HID posture — research-tier until validated |
+| RNDIS / CDC-NCM NICs | plug-in rogue NIC → DHCP/RA MITM from the host's own L2 | USB-attached NIC first-seen + instant OFFER/RA activity from it (feeds the netguard rows) |
+| Wi-Fi/BT radios on USB | attack-cable class (rogue radio built into a cable), hostile AP | first-seen radio inventory; concurrent AP-mode behavior on an unknown dongle alerts |
+| Storage — autorun lineage | `.desktop` Exec keys, `.lnk` re-targeting, `autorun.inf` heritage | media scan runs *before* user opens anything; exec lines in mounted filesystems flag |
+| Storage — hidden regions | HPA/DCO and vendor partitions beyond the declared logical size | geometry audit (interface-reported sectors vs partition table) plus a read-beyond-logical-end probe in IR mode |
+| Storage — hidden data | payload in unallocated space / filesystem slack / bad blocks | `--device` full-disk offline pass (sibling of the `--swap` pass), scanning unallocated ranges deliberately |
+| Storage — composite impersonation | emulated CD-ROM + MSD composites posing as installer media | composite-class storage flags unless provenance-pinned to a fleet-trusted vendor |
+| Copy-out (DLP-lite) | bulk exfiltration to removable | write-volume telemetry, policy alerts; mount-class deny available through the BPF-LSM mount hook the kernel section already registers |
+| Power Delivery / Type-C | BadPower-class contract abuse from chargers | `typec` / `power_supply` sysfs event taps: contract changes and unexpected PDOs logged per charger identity |
+| USB stack abuse | `usbip` remote device injection, raw `/dev/bus/usb` readers | `usbip` disabled in posture with alerts on bind attempts; raw usbfs readers provenance-reconciled |
+| Bus posture (DMA) | Thunderbolt/USB4 PCIe tunneling DMA, weak IOMMU | posture audit: IOMMU state, Thunderbolt security level, hotplug policy; IOMMU fault events tapped as DMA-attempt evidence — honest gap: no clean ATT&CK node exists, marked for submission |
+| Class policy | anything-not-allow-listed reaches drivers | peripheral allow-list profiles: HID+storage+charging classes only by default; others sit `authorized=0` at udev with events logged |
+
+- [ ] `internal/usbguard`: eBPF/udev/netlink taps, per-host first-seen inventory, the same
+  "kernel-asserted vs inferred" labels as the packet guard.
+- [ ] Device-first-seen nodes join the Threat Graph — "which process opened the new USB
+  device" is a one-hop pivot, and a device followed by anomalous process behavior
+  correlates automatically.
+- [ ] Kernel postures land in the hardening-posture report class: default-deny device
+  authorization, `usbip` off, IOMMU/TB security checks.
+- [ ] Accepted limit, stated plainly: inline hardware keyloggers and bus-level analog
+  interception are invisible to the host stack — they are asset-management problems, not
+  detection problems, and the plan documents the boundary rather than pretending
+  otherwise.
+
+---
+
+## Platform support policy — EOL operating systems retained
+
+Commercial EDRs drop EOL distro support aggressively because it damps their support
+cost. Large real fleets cannot upgrade on that clock. The product stays useful where the
+hosts actually are — with honesty about what EOL means, and without laundering it
+(addressed below in policy governance):
+
+- [ ] Support tiers: *Frontline* (two newest LTS branches per major distro, full
+  feature matrix), *Legacy/EOL* (at minimum two years beyond distro EOL: detection and
+  sensor keep working, supported, packageable), *Retired* (documented per release in
+  SUPPORT.md, never silently dropped between releases).
+- [ ] Engine portability is the mechanism: static/musl builds with libyara bundled, so
+  no distro glibc floor blocks an EOL host; deb/rpm packages for EOL distro versions
+  ship with every release alongside the hash channel.
+- [ ] Sensor kernel matrix explicitly includes EOL LTS kernels (4.19, 5.4, 5.10-class);
+  BPF-CO-RE keeps one binary across them; DKMS covers the tails. Feature degradation per
+  kernel is published in the matrix — never silent.
+- [ ] EOL visibility, not EOL euphemism: reports flag hosts running an EOL OS with the
+  distro's support state — in plain wording, per the free-reporting rules — but
+  detection continues unaffected. The product never implies an EOL host is secure, and
+  never offers to hide that flag (see policy governance).
+
 ---
 
 # Astra Console — paid tier
@@ -626,6 +852,27 @@ with measured FP/FN. The verification gate is the contribution, not the generati
   degrading under adversary pressure" is a dashboard no one else can draw
 - **Reporting** — SARIF/JSON export, compliance, ATT&CK coverage
 
+## Policy governance — no "risk accepted" mode
+
+The console will not ship a permanent "risk accepted" state that silences detections.
+That control is the most abused one in commercial EDR: exclusions become paths, paths
+become implants, and the exclusion list outlives every review that approved it.
+
+- [ ] Exclusions are objects with a lifetime: scope-bound (host, path, hash, process),
+  named owner, reason, provenance-signed, time-boxed with a hard default cap, renewable
+  only via re-executed approval. No silent allow-lists exist in any surface.
+- [ ] Detections never skip during an exclusion window: findings still compute and are
+  stored, reported as `excluded-by <id>` — suppressed, not erased. The audit trail keeps
+  both the detection and the decision.
+- [ ] Coverage honesty carries into governance: the fleet-wide exclusion report renders
+  beside the ATT&CK matrix, because a detection engine whose output can be switched off
+  by policy has not reported truth until it reports the policy too.
+- [ ] Engine-side parallel (same rule the repo's own agents run under): eval gates and
+  exit codes cannot be overriden by config — no `|| true` equivalent exists. The engine
+  ignores any "accept findings" field; JSON/SARIF stay factual.
+- [ ] The design stance: a product that accepts risks on behalf of its customers can be
+  made to blind itself; this one refuses the state instead of gating it.
+
 ## Licensing mechanics
 
 - Metered at the **sensor** layer, per protected host. License enforcement lives in the
@@ -635,6 +882,45 @@ with measured FP/FN. The verification gate is the contribution, not the generati
   extensibility that makes the OSS engine worth adopting. Actions are bounded by host
   count, not by agent count.
 - 1-year term with host-count tiers; air-gapped renewal path for regulated buyers.
+
+### Paid surfaces (dashboard + multi-tenancy)
+
+- **The dashboard is paid by design, not crippled into it.** The web console — fleet
+  inventory, policy editor, incident timelines, detection-content lifecycle, governance
+  surfaces — runs only from the licensed console. The OSS side stays complete for its
+  persona (CLI, JSON/SARIF output, MCP tools, eval harness): single-fleet technical
+  operators pay nothing and lose nothing they were promised.
+- **Multi-tenancy is the second paid surface.** Org → group → host hierarchy, tenant
+  isolation and quota, RBAC/SSO, and cross-tenant pivoting are console-licensed. The
+  engine itself has no tenant concept — single-fleet by design — so the paywall lives on
+  inherently stateful server-side capability, not on fake feature-caps in the engine.
+- Charging shape: sensors meter per protected host (above), the dashboard is licensed
+  per console deployment or tiered by managed host count, and multi-tenancy is priced
+  per tenant — exact numbers stay in `pricing.toml` (Phase 7 #4), never in prose.
+- Enforcement lives in the console server + sensor binaries only, mirroring the
+  licensing-leak rule. A license check must never appear in engine code, and paid
+  features must always be things the free version *structurally cannot host* — that is
+  what keeps the split honest at renewal time.
+
+### Free reporting — normal commercial use
+
+- [ ] Basic reporting is free and MIT for any commercial use: per-run artifacts — text,
+  JSON, SARIF — with per-file verdicts, heuristic category breakdowns, and YARA matches
+  with rule meta. No license gates, no phoning home, no watermarking in report content.
+- [ ] Neutral wording inside artifacts: reports record tool name, version, engine
+  thresholds and per-file data in plain professional language, suitable for CI runs and
+  audit handoff ("what was checked, why this verdict"). The CLI banner and tagline are
+  stderr persona only and never enter report artifacts; machine formats were already
+  banner-free by design (`finish()` writes a document even on failed runs).
+- [ ] Linux-first packaging for normal commercial deployment: deb/rpm packages with the
+  engine at the standard paths (resources under `/usr/share/cau`, config under
+  `/etc/cau` — matching the existing discovery order), man pages, shell completions,
+  and a systemd timer unit for scheduled scans writing reports to a configurable
+  directory.
+- [ ] The free/paid reporting boundary rides existing lines: anything a single run can
+  emit is free; anything that requires server-side state (fleet rollups, history,
+  cross-tenant views, compliance packs) is a console surface. Same structural rule the
+  paid-surfaces section enforces — reporting introduces no artificial cripples.
 
 ## Repo layout
 
@@ -668,6 +954,51 @@ Phase A (fleet + policy + detection lifecycle, shippable paid tier) → Console 
 
 MCP and the evasion suite are the OSS credibility plays. They make the engine worth
 adopting and they are the two things a commercial EDR will never publish.
+
+## Closing the loop — the four limits, owned
+
+The plan's own critique surfaces four standing limits. Each gets a workstream rather
+than a wish, and progress lands in the coverage artifact so it is measured, not promised.
+
+**1. Detection-content supply (the open-matrix problem).**
+The Phase 4 intake sources content; what it lacks is the *operations loop* that turns
+open matrix rows into shipped detections:
+- [ ] One open row = one tracked issue = one PR. Every merged detection lands with its
+  model card and Phase 1 FP/FN numbers attached. "Detection debt" — open rows and the
+  trend per release — is a published metric, not a private TODO.
+- [ ] Generation assists, never ships: the Phase 5 Tier-3 LLM analyst and corpus-cluster
+  rule drafts enter through the same gates as everything else — generated, gated,
+  human-reviewed. There is no fast lane around Phase 1.
+- [ ] Community contribution path: external rule PRs sign the same provenance manifest,
+  with a standing revert contract — a contributed rule that costs FPs is pulled in the
+  same CI cycle that introduced it, which is what keeps contributions safe to accept at
+  scale.
+
+**2. Latency and throughput (sensor runtime).**
+Phase 1 budgets the engine and the eval; the sensor runtime needs its own explicit
+numbers:
+- [ ] Hook-overhead budget: every BPF-LSM/eBPF program documents its per-event cost in
+  the source header; CI benches regressions with benchstat deltas and publishes
+  flamegraph artifacts. Regressions fail the build like any other gate.
+- [ ] Event-pipeline SLO: sustained-ingest target measured on the CI-runner baseline,
+  with a published event-loss policy — drop classes are accounted, never silent, per the
+  evidence-labeling rule. Under pressure the plan says *what sheds*, not aim silently.
+- [ ] Memory ceilings: the sensor RSS cap is enforced and surfaced, because the
+  agent-footprint argument (Phase 7 #7) only survives if it is measured.
+
+**3. The product's own CVE credibility.**
+- [ ] `SECURITY.md`, coordinated disclosure with embargo; `govulncheck` runs with
+  lint/build/test in the CI stage; SBOM is consumed, not only produced, so Astra's own
+  dependencies live under the same supply gates it enforces elsewhere.
+- [ ] A bypass of this product, when found, lands as a regression fixture the same day
+  as its fix — the Phase 11 bypass-corpus rule runs at Astra first.
+
+**4. The internal-corpus dependency.**
+- [ ] Every publicly planned detection names its public evidence source (MISP, abuse.ch,
+  LOLDrivers, the LOTL catalogs, synthetic fixtures). The internal corpus steers the
+  *priorities*; it never funds a public claim. Where no public twin of an internal
+  detection exists, the row stays gap-marked in the coverage matrix instead of shipping
+  a number the repo cannot itself support.
 
 ## Risks
 
