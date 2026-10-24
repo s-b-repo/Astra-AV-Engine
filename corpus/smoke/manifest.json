@@ -1,0 +1,75 @@
+{
+  "schema_version": "1",
+  "name": "smoke",
+  "description": "Synthetic smoke corpus: harmless text files that trip the shipped YARA rules, one hash-only sample, and benign controls. Safe to commit.",
+  "defaults": {
+    "source": "synthetic",
+    "license": "MIT"
+  },
+  "samples": [
+    {
+      "id": "mal-wannacry_strings",
+      "path": "malicious/wannacry_strings.bin",
+      "label": "wannacry",
+      "family": "wannacry",
+      "sha256": "67752ad7dbcabbf644510590b078e9649104756f19c0222443641f74cadbca51",
+      "notes": "trips rules/rule_list.yar: wannacry_ransomware"
+    },
+    {
+      "id": "mal-mimikatz_strings",
+      "path": "malicious/mimikatz_strings.bin",
+      "label": "mimikatz",
+      "family": "mimikatz",
+      "sha256": "1bd750ba45cd726c869b19984529bfb50c36b18feee2265faa41d7205505158d",
+      "notes": "trips rules/rule_list.yar: mimikatz_strings"
+    },
+    {
+      "id": "mal-lokibot_strings",
+      "path": "malicious/lokibot_strings.bin",
+      "label": "lokibot",
+      "family": "lokibot",
+      "sha256": "29f1e4857b3dcada5f74a9434c0327262ff08b9d165d7b3090a699de9582825c",
+      "notes": "trips rules/rule_list.yar: lokibot_stealer"
+    },
+    {
+      "id": "mal-ransom_extensions",
+      "path": "malicious/ransom_extensions.bin",
+      "label": "generic_ransomware",
+      "family": "generic_ransomware",
+      "sha256": "9505348ca1d38c5b44cc521f826cefbe94679ea33ae409b2c3112a786d25e4c7",
+      "notes": "trips rules/rule_list.yar: generic_ransomware_extensions"
+    },
+    {
+      "id": "mal-hash_only",
+      "path": "malicious/hash_only.bin",
+      "label": "smoke_hash",
+      "family": "smoke_hash",
+      "sha256": "0e05a72c8edfeb9ed20174dee7160b3dd4c91d3c27dc70ff14a951ce31dd8d48",
+      "notes": "no YARA strings; detected only via corpus/smoke/hashes.txt"
+    },
+    {
+      "id": "benign-README.txt",
+      "path": "benign/README.txt",
+      "label": "clean",
+      "sha256": "322e21955ba8f51c009dbae55d62c076d911d54d211c108da109eccc33526d18"
+    },
+    {
+      "id": "benign-config.ini",
+      "path": "benign/config.ini",
+      "label": "clean",
+      "sha256": "2ed8a5397fd465a5e8c300a630e2f5101bad13877a37816d5118b998790f4191"
+    },
+    {
+      "id": "benign-empty.bin",
+      "path": "benign/empty.bin",
+      "label": "clean",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "id": "benign-fetch.sh",
+      "path": "benign/fetch.sh",
+      "label": "clean",
+      "sha256": "e451f7f37005a9d582f01ca7cd24f096b6e6839e8294048e7715688e7a73672c"
+    }
+  ]
+}

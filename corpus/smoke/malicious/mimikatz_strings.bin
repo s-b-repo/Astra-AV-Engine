@@ -1,0 +1,4 @@
+synthetic sample: credential dumper command transcript
+privilege::debug
+sekurlsa::logonpasswords
+lsadump::sam

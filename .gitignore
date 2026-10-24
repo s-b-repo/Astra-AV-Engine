@@ -1,0 +1,27 @@
+# Build output
+/cau
+/cau.exe
+/astra-av
+/astra-av.exe
+/dist/
+/bin/
+
+# Go
+*.test
+*.out
+*.prof
+coverage.*
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+*.kate-swp
+.DS_Store
+
+# Local scratch: never commit real samples
+/samples/
+/corpus/local/
+/corpus/**/*.exe
+/corpus/**/*.dll
+/eval-out/

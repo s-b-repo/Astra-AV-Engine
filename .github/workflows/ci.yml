@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build, test, evaluate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install libyara
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libyara-dev yara pkg-config
+          pkg-config --modversion yara
+
+      - name: Lint
+        run: make lint
+
+      - name: Build
+        run: make build
+
+      - name: Unit tests (race)
+        run: make test-race
+
+      - name: Corpus validation
+        run: make eval-validate
+
+      - name: Regression gate against baseline
+        run: make eval-gate
+
+      - name: Scan the repository with itself (SARIF)
+        run: ./cau scan --dir . --format sarif --output cau.sarif --fail-on none --quiet
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-and-sarif
+          path: |
+            eval-out/report.json
+            cau.sarif
+
+  release:
+    name: release binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install libyara
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libyara-dev pkg-config
+      - name: Build
+        run: |
+          make build VERSION=${GITHUB_REF_NAME}
+          mkdir -p dist
+          tar -czf dist/cau-${GITHUB_REF_NAME}-linux-amd64.tar.gz cau rules signatures LICENSE README.md
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

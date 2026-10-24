@@ -1,4 +1,4 @@
-module github.com/ASTRA-LabsHQ/Astra-AV-Engine
+module github.com/cau-edr/cau
 
 go 1.24.1
 

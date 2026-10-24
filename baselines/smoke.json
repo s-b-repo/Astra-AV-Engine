@@ -1,0 +1,428 @@
+{
+  "schema_version": "1",
+  "run": {
+    "tool": "CAU EDR 0.4.0-dev",
+    "generated_at": "2026-10-24T21:48:31.965463375Z",
+    "corpus": "corpus/smoke/manifest.json",
+    "corpus_name": "smoke",
+    "corpus_root": "/home/kali/Documents/astrav2/corpus/smoke",
+    "detectors": [
+      "hash",
+      "heuristic",
+      "yara"
+    ],
+    "concurrency": 12,
+    "on_error": "exclude"
+  },
+  "samples": [
+    {
+      "id": "benign-README.txt",
+      "path": "benign/README.txt",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/README.txt",
+      "expected": "clean",
+      "family": "clean",
+      "size": 213,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 735812
+    },
+    {
+      "id": "benign-config.ini",
+      "path": "benign/config.ini",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/config.ini",
+      "expected": "clean",
+      "family": "clean",
+      "size": 68,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 74194
+    },
+    {
+      "id": "benign-empty.bin",
+      "path": "benign/empty.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/empty.bin",
+      "expected": "clean",
+      "family": "clean",
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 291321
+    },
+    {
+      "id": "benign-fetch.sh",
+      "path": "benign/fetch.sh",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/fetch.sh",
+      "expected": "clean",
+      "family": "clean",
+      "size": 152,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 160455
+    },
+    {
+      "id": "mal-hash_only",
+      "path": "malicious/hash_only.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/hash_only.bin",
+      "expected": "smoke_hash",
+      "family": "smoke_hash",
+      "size": 98,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "hash",
+          "rule": "Smoke_Hash Synthetic Sample",
+          "family": "smoke_hash",
+          "detail": "sha256:0e05a72c8edfeb9ed20174dee7160b3dd4c91d3c27dc70ff14a951ce31dd8d48"
+        }
+      ],
+      "detectors": [
+        "hash"
+      ],
+      "scored": true,
+      "duration_ns": 174731
+    },
+    {
+      "id": "mal-lokibot_strings",
+      "path": "malicious/lokibot_strings.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/lokibot_strings.bin",
+      "expected": "lokibot",
+      "family": "lokibot",
+      "size": 85,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "yara",
+          "rule": "lokibot_stealer",
+          "family": "lokibot",
+          "detail": "threat_level=4 strings=4"
+        }
+      ],
+      "detectors": [
+        "yara"
+      ],
+      "scored": true,
+      "duration_ns": 362749
+    },
+    {
+      "id": "mal-mimikatz_strings",
+      "path": "malicious/mimikatz_strings.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/mimikatz_strings.bin",
+      "expected": "mimikatz",
+      "family": "mimikatz",
+      "size": 110,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "yara",
+          "rule": "mimikatz_strings",
+          "family": "mimikatz",
+          "detail": "threat_level=5 strings=3"
+        },
+        {
+          "detector": "heuristic",
+          "rule": "heuristic/score",
+          "detail": "score 8/threshold 7; Credential Access(2)"
+        },
+        {
+          "detector": "heuristic",
+          "rule": "heuristic/credential-access",
+          "detail": "Credential Access"
+        }
+      ],
+      "detectors": [
+        "heuristic",
+        "yara"
+      ],
+      "scored": true,
+      "duration_ns": 716001
+    },
+    {
+      "id": "mal-ransom_extensions",
+      "path": "malicious/ransom_extensions.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/ransom_extensions.bin",
+      "expected": "generic_ransomware",
+      "family": "generic_ransomware",
+      "size": 135,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "yara",
+          "rule": "generic_ransomware_extensions",
+          "family": "ransomware",
+          "detail": "threat_level=3 strings=3"
+        }
+      ],
+      "detectors": [
+        "yara"
+      ],
+      "scored": true,
+      "duration_ns": 400418
+    },
+    {
+      "id": "mal-wannacry_strings",
+      "path": "malicious/wannacry_strings.bin",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/wannacry_strings.bin",
+      "expected": "wannacry",
+      "family": "wannacry",
+      "size": 74,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "yara",
+          "rule": "wannacry_ransomware",
+          "family": "wannacry",
+          "detail": "threat_level=5 strings=4"
+        }
+      ],
+      "detectors": [
+        "yara"
+      ],
+      "scored": true,
+      "duration_ns": 588401
+    }
+  ],
+  "totals": {
+    "tp": 5,
+    "fp": 0,
+    "tn": 4,
+    "fn": 0
+  },
+  "metrics": {
+    "precision": 1,
+    "recall": 1,
+    "f1": 1,
+    "specificity": 1,
+    "fpr": 0,
+    "accuracy": 1
+  },
+  "by_detector": [
+    {
+      "detector": "hash",
+      "counts": {
+        "tp": 1,
+        "fp": 0,
+        "tn": 4,
+        "fn": 4
+      },
+      "metrics": {
+        "precision": 1,
+        "recall": 0.2,
+        "f1": 0.33333333333333337,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.5555555555555556
+      },
+      "fires": 1,
+      "exclusive_hits": 1
+    },
+    {
+      "detector": "heuristic",
+      "counts": {
+        "tp": 1,
+        "fp": 0,
+        "tn": 4,
+        "fn": 4
+      },
+      "metrics": {
+        "precision": 1,
+        "recall": 0.2,
+        "f1": 0.33333333333333337,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.5555555555555556
+      },
+      "fires": 1,
+      "exclusive_hits": 0
+    },
+    {
+      "detector": "yara",
+      "counts": {
+        "tp": 4,
+        "fp": 0,
+        "tn": 4,
+        "fn": 1
+      },
+      "metrics": {
+        "precision": 1,
+        "recall": 0.8,
+        "f1": 0.888888888888889,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.8888888888888888
+      },
+      "fires": 4,
+      "exclusive_hits": 3
+    }
+  ],
+  "by_family": [
+    {
+      "family": "generic_ransomware",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "lokibot",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "mimikatz",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "smoke_hash",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "wannacry",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    }
+  ],
+  "by_rule": [
+    {
+      "rule": "Smoke_Hash Synthetic Sample",
+      "detectors": [
+        "hash"
+      ],
+      "families": [
+        "smoke_hash"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "generic_ransomware_extensions",
+      "detectors": [
+        "yara"
+      ],
+      "families": [
+        "ransomware"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "heuristic/credential-access",
+      "detectors": [
+        "heuristic"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "heuristic/score",
+      "detectors": [
+        "heuristic"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "lokibot_stealer",
+      "detectors": [
+        "yara"
+      ],
+      "families": [
+        "lokibot"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "mimikatz_strings",
+      "detectors": [
+        "yara"
+      ],
+      "families": [
+        "mimikatz"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "wannacry_ransomware",
+      "detectors": [
+        "yara"
+      ],
+      "families": [
+        "wannacry"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    }
+  ],
+  "false_positives": [],
+  "false_negatives": [],
+  "errors": [],
+  "skipped": [],
+  "perf": {
+    "samples": 9,
+    "total_duration_ns": 3504082,
+    "mean_duration_ns": 389342,
+    "p50_ns": 362749,
+    "p95_ns": 735812,
+    "max_duration_ns": 735812,
+    "bytes_scanned": 935,
+    "throughput_bytes_per_s": 266831.6551952837,
+    "slowest": [
+      {
+        "key": "benign-README.txt",
+        "path": "benign/README.txt",
+        "duration_ns": 735812
+      },
+      {
+        "key": "mal-mimikatz_strings",
+        "path": "malicious/mimikatz_strings.bin",
+        "duration_ns": 716001
+      },
+      {
+        "key": "mal-wannacry_strings",
+        "path": "malicious/wannacry_strings.bin",
+        "duration_ns": 588401
+      },
+      {
+        "key": "mal-ransom_extensions",
+        "path": "malicious/ransom_extensions.bin",
+        "duration_ns": 400418
+      },
+      {
+        "key": "mal-lokibot_strings",
+        "path": "malicious/lokibot_strings.bin",
+        "duration_ns": 362749
+      }
+    ]
+  }
+}

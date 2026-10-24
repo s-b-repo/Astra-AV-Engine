@@ -1,0 +1,233 @@
+// Package scannerbridge adapts the CAU EDR scanner to the eval.Detector
+// interface. It is the only place where the evaluation harness and the
+// scanner meet: internal/eval stays standard-library-only, and the scanner
+// never learns about corpora or metrics.
+package scannerbridge
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/cau-edr/cau/internal/eval"
+	"github.com/cau-edr/cau/scanner"
+)
+
+// HashDetector wraps the signature database. It is not configured when db is
+// nil or empty: a hash detector with nothing to match would silently score
+// zero recall.
+func HashDetector(db *scanner.SignatureDB) eval.Detector {
+	return hashDetector{db: db}
+}
+
+type hashDetector struct{ db *scanner.SignatureDB }
+
+func (hashDetector) Name() string { return eval.DetectorHash }
+
+func (d hashDetector) ScanFile(path string) (eval.Finding, error) {
+	if d.db == nil || d.db.Count() == 0 {
+		return eval.Finding{Path: path, Verdict: eval.VerdictError}, fmt.Errorf("%w: hash detector has no signatures", eval.ErrNotConfigured)
+	}
+	start := time.Now()
+	r := scanner.ScanFile(path, d.db, nil)
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if r.Error != nil {
+		f.Verdict = eval.VerdictError
+		f.Err = r.Error
+		return f, r.Error
+	}
+	if r.Detected {
+		f.Verdict = eval.VerdictMalicious
+		f.Signals = []eval.Signal{{
+			Detector: eval.DetectorHash,
+			Rule:     r.ThreatName,
+			Family:   familyFromThreatName(r.ThreatName),
+			Detail:   strings.ToLower(r.MatchType) + ":" + r.MatchHash,
+		}}
+	}
+	return f, nil
+}
+
+// familyFromThreatName derives a family label from a signature's threat name
+// ("WannaCry Ransomware" -> "wannacry"): the first word, lowercased.
+func familyFromThreatName(name string) string {
+	fields := strings.Fields(strings.ToLower(name))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Trim(fields[0], "/-_.")
+}
+
+// YaraDetector wraps a compiled ruleset. The scanner is shared, so the caller
+// keeps ownership and closes it after the run.
+func YaraDetector(ys *scanner.YaraScanner) eval.Detector {
+	return yaraDetector{ys: ys}
+}
+
+type yaraDetector struct{ ys *scanner.YaraScanner }
+
+func (yaraDetector) Name() string { return eval.DetectorYara }
+
+func (d yaraDetector) ScanFile(path string) (eval.Finding, error) {
+	if d.ys == nil || d.ys.RuleCount() == 0 {
+		return eval.Finding{Path: path, Verdict: eval.VerdictError}, fmt.Errorf("%w: yara detector has no rules", eval.ErrNotConfigured)
+	}
+	start := time.Now()
+	matches, err := d.ys.ScanFileYaraStrict(path)
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	for _, m := range matches {
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorYara,
+			Rule:     ruleName(m),
+			Family:   strings.ToLower(m.MetaString("family")),
+			Detail:   yaraDetail(m),
+		})
+	}
+	if len(f.Signals) > 0 {
+		f.Verdict = eval.VerdictMalicious
+	}
+	if err != nil {
+		f.Err = err
+		if len(f.Signals) == 0 {
+			f.Verdict = eval.VerdictError
+			return f, err
+		}
+		// Partial scan with detections: keep them, surface the error.
+	}
+	return f, nil
+}
+
+func ruleName(m scanner.YaraMatch) string {
+	if m.Namespace != "" && m.Namespace != "default" {
+		return m.Namespace + "/" + m.RuleName
+	}
+	return m.RuleName
+}
+
+func yaraDetail(m scanner.YaraMatch) string {
+	var parts []string
+	if len(m.Tags) > 0 {
+		parts = append(parts, "tags="+strings.Join(m.Tags, ","))
+	}
+	if tl := m.MetaString("threat_level"); tl != "" {
+		parts = append(parts, "threat_level="+tl)
+	}
+	parts = append(parts, fmt.Sprintf("strings=%d", len(m.Strings)))
+	return strings.Join(parts, " ")
+}
+
+// HeuristicDetector wraps the string/API heuristics. It fires only when the
+// score reaches threshold, exactly like the CLI; a threshold <= 0 uses the
+// scanner's own default.
+func HeuristicDetector(threshold int) eval.Detector {
+	if threshold <= 0 {
+		threshold = scanner.HeuristicThreshold
+	}
+	return heuristicDetector{threshold: threshold}
+}
+
+type heuristicDetector struct{ threshold int }
+
+func (heuristicDetector) Name() string { return eval.DetectorHeuristic }
+
+func (d heuristicDetector) ScanFile(path string) (eval.Finding, error) {
+	start := time.Now()
+	h := scanner.ScanHeuristics(path)
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if h.Error != nil {
+		f.Verdict = eval.VerdictError
+		f.Err = h.Error
+		return f, h.Error
+	}
+	if h.Score < d.threshold {
+		return f, nil
+	}
+	f.Verdict = eval.VerdictSuspicious
+	f.Signals = []eval.Signal{{
+		Detector: eval.DetectorHeuristic,
+		Rule:     "heuristic/score",
+		Detail:   fmt.Sprintf("score %d/threshold %d; %s", h.Score, d.threshold, topCategories(h.Matches, 3)),
+	}}
+	for _, c := range categoryList(h.Matches) {
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorHeuristic,
+			Rule:     "heuristic/" + slug(c),
+			Detail:   c,
+		})
+	}
+	return f, nil
+}
+
+func categoryList(ms []scanner.HeuristicMatch) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range ms {
+		if !seen[m.Category] {
+			seen[m.Category] = true
+			out = append(out, m.Category)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func topCategories(ms []scanner.HeuristicMatch, n int) string {
+	count := map[string]int{}
+	for _, m := range ms {
+		count[m.Category]++
+	}
+	cats := make([]string, 0, len(count))
+	for c := range count {
+		cats = append(cats, c)
+	}
+	sort.Slice(cats, func(i, j int) bool {
+		if count[cats[i]] != count[cats[j]] {
+			return count[cats[i]] > count[cats[j]]
+		}
+		return cats[i] < cats[j]
+	})
+	if len(cats) > n {
+		cats = cats[:n]
+	}
+	parts := make([]string, 0, len(cats))
+	for _, c := range cats {
+		parts = append(parts, fmt.Sprintf("%s(%d)", c, count[c]))
+	}
+	return strings.Join(parts, " ")
+}
+
+func slug(s string) string {
+	var b strings.Builder
+	last := '-'
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			last = r
+		default:
+			if last != '-' {
+				b.WriteRune('-')
+				last = '-'
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// Engine returns the full detector set the CLI runs. Nil db disables the
+// hash detector, nil ys disables YARA, heuristicThreshold < 0 disables the
+// heuristics (0 means the scanner default).
+func Engine(db *scanner.SignatureDB, ys *scanner.YaraScanner, heuristicThreshold int) []eval.Detector {
+	var out []eval.Detector
+	if db != nil {
+		out = append(out, HashDetector(db))
+	}
+	if ys != nil {
+		out = append(out, YaraDetector(ys))
+	}
+	if heuristicThreshold >= 0 {
+		out = append(out, HeuristicDetector(heuristicThreshold))
+	}
+	return out
+}

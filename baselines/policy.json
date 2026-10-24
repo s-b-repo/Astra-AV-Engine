@@ -1,0 +1,9 @@
+{
+  "max_recall_drop": 0,
+  "max_fpr_increase": 0,
+  "max_new_false_positives": 0,
+  "max_error_increase": 0,
+  "perf": {
+    "max_total_duration_increase_pct": 50
+  }
+}

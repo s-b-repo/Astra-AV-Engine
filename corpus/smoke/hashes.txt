@@ -1,0 +1,2 @@
+# Smoke corpus signature database (synthetic). Format: HASH_TYPE|HASH|THREAT_NAME
+SHA256|0e05a72c8edfeb9ed20174dee7160b3dd4c91d3c27dc70ff14a951ce31dd8d48|Smoke_Hash Synthetic Sample

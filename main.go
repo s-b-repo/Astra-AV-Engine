@@ -1,285 +1,334 @@
+// Command cau is the CAU EDR command line: a transparent, open-source malware
+// detection engine (hash signatures, YARA, string/API heuristics) with
+// machine-readable output, CI exit codes and a measured evaluation harness.
 package main
 
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/ASTRA-LabsHQ/Astra-AV-Engine/scanner"
+	"github.com/cau-edr/cau/internal/report"
+	"github.com/cau-edr/cau/scanner"
 )
 
-const version = "0.3.0"
+// version is overridden at build time: -ldflags "-X main.version=v1.2.3".
+var version = "0.4.0-dev"
 
-// defaultSigDB returns the path to the signature database relative to the binary.
-func defaultSigDB() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return filepath.Join("signatures", "hashes.txt")
-	}
-	return filepath.Join(filepath.Dir(exe), "signatures", "hashes.txt")
-}
-
-// defaultRulesDir returns the default YARA rules directory relative to the binary.
-func defaultRulesDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return filepath.Join("rules")
-	}
-	return filepath.Join(filepath.Dir(exe), "rules")
-}
-
-func printBanner() {
-	fmt.Println(strings.Repeat("=", 60))
-	fmt.Printf(" Astra AV Engine v%s\n", version)
-	fmt.Println(" Advanced Security Research and Analysis")
-	fmt.Println(" Detection: Hash Signatures + YARA Rules + Heuristics")
-	fmt.Println(strings.Repeat("=", 60))
-	fmt.Println()
-}
-
-func printResult(r scanner.ScanResult) {
-	if r.Error != nil {
-		fmt.Printf(" [ERR] %s\n      %v\n\n", r.FilePath, r.Error)
-		return
-	}
-
-	// ── Hash match ───────────────────────────────────────
-	if r.Detected {
-		fmt.Println(" [!] DETECTED (Hash) —", r.FilePath)
-		fmt.Printf("     %-10s: %s\n", r.MatchType, r.MatchHash)
-		fmt.Printf("     %-10s: %s\n", "Match", r.ThreatName)
-		fmt.Printf("     %-10s: %s\n", "Verdict", r.Verdict)
-		fmt.Printf("     %-10s: %s\n\n", "Scan time", r.ScanTime)
-	}
-
-	// ── YARA matches ─────────────────────────────────────
-	if len(r.YaraMatches) > 0 {
-		if !r.Detected {
-			fmt.Println(" [!] DETECTED (YARA) —", r.FilePath)
-			fmt.Printf("     %-10s: %s\n", "Verdict", r.Verdict)
-		} else {
-			fmt.Printf("     Also matched %d YARA rule(s):\n", len(r.YaraMatches))
-		}
-
-		for _, m := range r.YaraMatches {
-			tags := ""
-			if len(m.Tags) > 0 {
-				tags = fmt.Sprintf(" [%s]", strings.Join(m.Tags, ", "))
-			}
-			fmt.Printf("     [YARA] %s::%s%s\n", m.Namespace, m.RuleName, tags)
-			for _, s := range m.Strings {
-				data := s.Data
-				suffix := ""
-				if len(data) > 32 {
-					data = data[:32]
-					suffix = "..."
-				}
-				fmt.Printf("            %s @ 0x%x : %q%s\n", s.Name, s.Offset, data, suffix)
-			}
-		}
-		fmt.Printf("     %-10s: %s\n\n", "Scan time", r.ScanTime)
-	}
-
-	// ── Clean ────────────────────────────────────────────
-	if !r.Detected && len(r.YaraMatches) == 0 {
-		fmt.Printf(" [CLEAN] %s\n", r.FilePath)
-	}
-}
-
-func printHeuristicResult(h scanner.HeuristicResult) {
-	if h.Error != nil {
-		fmt.Printf(" [ERR] Heuristics on %s: %v\n\n", h.FilePath, h.Error)
-		return
-	}
-
-	if h.Detected() {
-		fmt.Printf(" [!] DETECTED (Heuristics) — %s\n", h.FilePath)
-		fmt.Printf("     %-10s: %s\n", "Verdict", "SUSPICIOUS")
-		fmt.Printf("     %-10s: %d / %d threshold\n\n", "Score", h.Score, scanner.HeuristicThreshold)
-
-		// Group matches by category, preserving first-seen order
-		byCategory := make(map[string][]scanner.HeuristicMatch)
-		var categoryOrder []string
-		for _, m := range h.Matches {
-			if _, exists := byCategory[m.Category]; !exists {
-				categoryOrder = append(categoryOrder, m.Category)
-			}
-			byCategory[m.Category] = append(byCategory[m.Category], m)
-		}
-		for _, category := range categoryOrder {
-			fmt.Printf("     [%s]\n", category)
-			for _, hit := range byCategory[category] {
-				fmt.Printf("       %-14s %s\n", "["+hit.Source+"]", hit.Indicator)
-			}
-		}
-		fmt.Println()
-	} else if len(h.Matches) > 0 {
-		// Below threshold but not clean — worth surfacing
-		fmt.Printf(" [~] LOW SUSPICION — %s (score: %d)\n", h.FilePath, h.Score)
-	}
-	// Score 0 / no matches: printResult already printed [CLEAN], so stay quiet
-}
-
-func printSummary(results []scanner.ScanResult, hResults []scanner.HeuristicResult, elapsed time.Duration) {
-	total, hashDetected, yaraDetected, heuristicDetected, errors := 0, 0, 0, 0, 0
-
-	for _, r := range results {
-		total++
-		if r.Detected {
-			hashDetected++
-		}
-		if len(r.YaraMatches) > 0 {
-			yaraDetected++
-		}
-		if r.Error != nil {
-			errors++
-		}
-	}
-	for _, h := range hResults {
-		if h.Error != nil {
-			errors++
-		} else if h.Detected() {
-			heuristicDetected++
-		}
-	}
-
-	fmt.Println()
-	fmt.Println(strings.Repeat("-", 60))
-	fmt.Printf(" Scan complete         : %s\n", elapsed.Round(time.Millisecond))
-	fmt.Printf(" Files scanned         : %d\n", total)
-	fmt.Printf(" Hash detections       : %d\n", hashDetected)
-	fmt.Printf(" YARA detections       : %d\n", yaraDetected)
-	fmt.Printf(" Heuristic detections  : %d\n", heuristicDetected)
-	fmt.Printf(" Errors                : %d\n", errors)
-	fmt.Println(strings.Repeat("-", 60))
-
-	if hashDetected+yaraDetected+heuristicDetected > 0 {
-		fmt.Println("\n *** THREATS DETECTED — DO NOT EXECUTE FLAGGED FILES ***")
-	} else {
-		fmt.Println("\n No threats detected.")
-	}
-}
+const (
+	toolName    = "CAU EDR"
+	toolTagline = "Certs Are Useless — detection that trusts no certificate"
+)
 
 func main() {
-	printBanner()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	// ── Subcommands ──────────────────────────────────────
-	scanCmd := flag.NewFlagSet("scan", flag.ExitOnError)
-	scanFile := scanCmd.String("file", "", "Path to a single file to scan")
-	scanDir := scanCmd.String("dir", "", "Path to a directory to scan recursively")
-	scanDB := scanCmd.String("db", defaultSigDB(), "Path to signature database")
-	scanRules := scanCmd.String("rules", "", "Path to a YARA rule file or directory (optional)")
-	scanNoHeuristics := scanCmd.Bool("no-heuristics", false, "Disable string & API heuristic scanning")
+func usage(w io.Writer) {
+	fmt.Fprintf(w, `%s %s
+%s
 
-	addCmd := flag.NewFlagSet("add-hash", flag.ExitOnError)
-	addHash := addCmd.String("hash", "", "Hash value to add")
-	addType := addCmd.String("type", "SHA256", "Hash type: MD5, SHA1, or SHA256")
-	addName := addCmd.String("name", "", "Threat name (e.g. \"WannaCry Ransomware\")")
-	addDB := addCmd.String("db", defaultSigDB(), "Path to signature database")
+Usage:
+  cau scan     [flags] [path ...]      scan files and directories
+  cau add-hash [flags]                 append a hash signature to the database
+  cau eval     <subcommand> [flags]    corpus evaluation harness (see "cau eval help")
+  cau version                          print the version
 
-	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage:")
-		fmt.Fprintln(os.Stderr, "  astra-av scan --file <path> [--rules <path>] [--no-heuristics]")
-		fmt.Fprintln(os.Stderr, "  astra-av scan --dir  <path> [--rules <path>] [--no-heuristics]")
-		fmt.Fprintln(os.Stderr, "  astra-av add-hash --hash <hash> --name <threat>")
-		os.Exit(1)
+Scan examples:
+  cau scan --file suspicious.exe
+  cau scan --dir ./samples --format sarif --output cau.sarif
+  cau scan ./build --format json --fail-on heuristic
+  cau scan --dir / --jobs 16 --no-heuristics --quiet
+
+Exit codes (scan): 0 clean, 1 findings at or above --fail-on, 2 some files
+could not be scanned, 3 the run itself failed, 4 usage error.
+
+Resources: the signature database and the YARA rules are found automatically
+(next to the binary, <prefix>/share/cau, /usr/share/cau, or the working
+directory); override with --db / --rules or %s / %s.
+`, toolName, version, toolTagline, envSignatures, envRules)
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		usage(stderr)
+		return report.ExitUsage
 	}
-
-	switch os.Args[1] {
-
-	// ── scan ─────────────────────────────────────────────
+	switch args[0] {
 	case "scan":
-		scanCmd.Parse(os.Args[2:])
-
-		if *scanFile == "" && *scanDir == "" {
-			fmt.Fprintln(os.Stderr, "[ERROR] Provide --file or --dir")
-			scanCmd.Usage()
-			os.Exit(1)
-		}
-
-		// Load hash signature database
-		db, err := scanner.LoadSignatures(*scanDB)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("[*] Loaded %d hash signatures from %s\n", db.Count(), *scanDB)
-
-		// Load YARA rules (optional)
-		var ys *scanner.YaraScanner
-		if *scanRules != "" {
-			var ruleCount int
-			ys, ruleCount, err = scanner.LoadYaraRules(*scanRules)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[ERROR] YARA: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Printf("[*] Loaded %d YARA rule file(s) from %s\n", ruleCount, *scanRules)
-		} else {
-			fmt.Println("[*] YARA scanning disabled (use --rules to enable)")
-		}
-
-		// Heuristics status
-		if !*scanNoHeuristics {
-			fmt.Printf("[*] String & API heuristics enabled (threshold: %d)\n", scanner.HeuristicThreshold)
-		} else {
-			fmt.Println("[*] String & API heuristics disabled")
-		}
-		fmt.Println()
-
-		start := time.Now()
-		var results []scanner.ScanResult
-		var heuristicResults []scanner.HeuristicResult
-
-		if *scanFile != "" {
-			fmt.Printf("[*] Scanning file: %s\n\n", *scanFile)
-			results = append(results, scanner.ScanFile(*scanFile, db, ys))
-		} else {
-			fmt.Printf("[*] Scanning directory: %s\n\n", *scanDir)
-			results = scanner.ScanDirectory(*scanDir, db, ys)
-		}
-
-		for _, r := range results {
-			printResult(r)
-
-			if !*scanNoHeuristics {
-				h := scanner.ScanHeuristics(r.FilePath)
-				heuristicResults = append(heuristicResults, h)
-				printHeuristicResult(h)
-			}
-		}
-
-		printSummary(results, heuristicResults, time.Since(start))
-
-	// ── add-hash ─────────────────────────────────────────
+		return cmdScan(args[1:], stdout, stderr)
 	case "add-hash":
-		addCmd.Parse(os.Args[2:])
-
-		if *addHash == "" || *addName == "" {
-			fmt.Fprintln(os.Stderr, "[ERROR] --hash and --name are required")
-			addCmd.Usage()
-			os.Exit(1)
-		}
-
-		validTypes := map[string]bool{"MD5": true, "SHA1": true, "SHA256": true}
-		hashType := strings.ToUpper(*addType)
-		if !validTypes[hashType] {
-			fmt.Fprintf(os.Stderr, "[ERROR] Invalid hash type %q — must be MD5, SHA1, or SHA256\n", *addType)
-			os.Exit(1)
-		}
-
-		if err := scanner.AddSignature(*addDB, hashType, *addHash, *addName); err != nil {
-			fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("[+] Added signature: %s|%s|%s\n", hashType, *addHash, *addName)
-
+		return cmdAddHash(args[1:], stdout, stderr)
+	case "eval":
+		return cmdEval(args[1:], stdout, stderr)
+	case "version", "--version", "-v":
+		fmt.Fprintf(stdout, "%s %s\n", toolName, version)
+		return report.ExitOK
+	case "help", "-h", "--help":
+		usage(stdout)
+		return report.ExitOK
 	default:
-		fmt.Fprintf(os.Stderr, "[ERROR] Unknown command %q\n", os.Args[1])
-		fmt.Fprintln(os.Stderr, "Commands: scan, add-hash")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "[ERROR] unknown command %q\n\n", args[0])
+		usage(stderr)
+		return report.ExitUsage
 	}
+}
+
+// ── scan ─────────────────────────────────────────────────────────────────────
+
+type scanFlags struct {
+	file, dir         string
+	db, rules         string
+	noYara, noHeur    bool
+	heurThreshold     int
+	format, output    string
+	pretty            bool
+	failOn            string
+	noFailOnScanError bool
+	jobs              int
+	followSymlinks    bool
+	maxInMemoryMiB    int64
+	yaraTimeout       time.Duration
+	quiet             bool
+}
+
+func cmdScan(args []string, stdout, stderr io.Writer) int {
+	var f scanFlags
+	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&f.file, "file", "", "a single file to scan (positional paths are accepted too)")
+	fs.StringVar(&f.dir, "dir", "", "a directory to scan recursively")
+	fs.StringVar(&f.db, "db", "", "signature database (default: auto-discovered, see 'cau help')")
+	fs.StringVar(&f.rules, "rules", "", "YARA rule file or directory (default: auto-discovered)")
+	fs.BoolVar(&f.noYara, "no-yara", false, "disable YARA scanning")
+	fs.BoolVar(&f.noHeur, "no-heuristics", false, "disable string & API heuristics")
+	fs.IntVar(&f.heurThreshold, "heuristic-threshold", scanner.HeuristicThreshold, "heuristic score at which a file is reported suspicious")
+	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
+	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
+	fs.BoolVar(&f.pretty, "pretty", false, "indent JSON/SARIF output")
+	fs.StringVar(&f.failOn, "fail-on", string(report.FailOnMalicious), "exit 1 at this finding level: none, malicious, heuristic, clean")
+	fs.BoolVar(&f.noFailOnScanError, "no-fail-on-scan-error", false, "do not exit 2 when some files could not be scanned")
+	fs.IntVar(&f.jobs, "jobs", 0, "files scanned concurrently (default: number of CPUs)")
+	fs.BoolVar(&f.followSymlinks, "follow-symlinks", false, "scan the targets of symlinks to files (directory symlinks are never followed)")
+	fs.Int64Var(&f.maxInMemoryMiB, "max-in-memory", scanner.DefaultMaxInMemory>>20, "largest file (MiB) read into memory; bigger files are streamed and skip heuristics")
+	fs.DurationVar(&f.yaraTimeout, "yara-timeout", scanner.DefaultScanTimeout, "per-file YARA scan budget")
+	fs.BoolVar(&f.quiet, "quiet", false, "suppress the banner and progress lines on stderr")
+	if err := fs.Parse(args); err != nil {
+		return report.ExitUsage
+	}
+
+	var targets []string
+	if f.file != "" {
+		targets = append(targets, f.file)
+	}
+	if f.dir != "" {
+		targets = append(targets, f.dir)
+	}
+	targets = append(targets, fs.Args()...)
+	if len(targets) == 0 {
+		fmt.Fprintln(stderr, "[ERROR] nothing to scan: give --file, --dir or a path")
+		fs.Usage()
+		return report.ExitUsage
+	}
+
+	level, err := report.ParseFailOn(f.failOn)
+	if err != nil {
+		fmt.Fprintf(stderr, "[ERROR] %v\n", err)
+		return report.ExitUsage
+	}
+	if f.heurThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --heuristic-threshold must be at least 1")
+		return report.ExitUsage
+	}
+
+	opts := []report.Option{
+		report.WithToolName(toolName),
+		report.WithToolVersion(version),
+		report.WithFailOn(level),
+		report.WithFailOnScanError(!f.noFailOnScanError),
+		report.WithHeuristicThreshold(f.heurThreshold),
+		report.WithIndent(f.pretty),
+	}
+	if f.dir != "" && len(targets) == 1 {
+		opts = append(opts, report.WithRoot(f.dir))
+	}
+	reporter, err := report.NewReporter(f.format, opts...)
+	if err != nil {
+		fmt.Fprintf(stderr, "[ERROR] %v\n", err)
+		return report.ExitUsage
+	}
+	policy := report.NewExitPolicy(opts...)
+
+	status := func(format string, a ...interface{}) {
+		if !f.quiet {
+			fmt.Fprintf(stderr, format+"\n", a...)
+		}
+	}
+	if !f.quiet {
+		printBanner(stderr)
+	}
+
+	// finish writes the report (even when the run failed, so JSON/SARIF
+	// consumers always get a document) and returns the exit code.
+	finish := func(in report.Input) int {
+		out := io.Writer(stdout)
+		if f.output != "" {
+			fh, err := os.Create(f.output)
+			if err != nil {
+				fmt.Fprintf(stderr, "[ERROR] cannot write %s: %v\n", f.output, err)
+				return report.ExitRunFailed
+			}
+			defer fh.Close()
+			out = fh
+		}
+		if err := reporter.Write(out, in); err != nil {
+			fmt.Fprintf(stderr, "[ERROR] writing report: %v\n", err)
+			return report.ExitRunFailed
+		}
+		if in.RunError != nil {
+			fmt.Fprintf(stderr, "[ERROR] %v\n", in.RunError)
+		}
+		status("[*] %s", policy.Explain(in))
+		return policy.Code(in)
+	}
+
+	// ── resources ──
+	dbPath, searched := findResource(f.db, envSignatures, relSignatures)
+	if dbPath == "" {
+		return finish(report.Input{RunError: fmt.Errorf("signature database not found; pass --db or set %s (searched: %s)",
+			envSignatures, strings.Join(searched, ", "))})
+	}
+	db, err := scanner.LoadSignatures(dbPath)
+	if err != nil {
+		return finish(report.Input{RunError: err})
+	}
+	for _, w := range db.Warnings() {
+		status("[WARN] %s", w)
+	}
+	status("[*] Loaded %d hash signatures from %s", db.Count(), dbPath)
+
+	var ys *scanner.YaraScanner
+	if !f.noYara {
+		rulesPath, searched := findResource(f.rules, envRules, relRules)
+		switch {
+		case rulesPath == "" && f.rules == "":
+			status("[*] YARA rules not found, YARA disabled (pass --rules or set %s; searched: %s)",
+				envRules, strings.Join(searched, ", "))
+		case rulesPath == "":
+			return finish(report.Input{RunError: fmt.Errorf("YARA rules not found at %s", f.rules)})
+		default:
+			yopts := []scanner.YaraOption{scanner.WithTimeout(f.yaraTimeout)}
+			if f.quiet {
+				yopts = append(yopts, scanner.WithWarnFunc(func(string, ...interface{}) {}))
+			} else {
+				yopts = append(yopts, scanner.WithWarnFunc(func(format string, a ...interface{}) {
+					fmt.Fprintf(stderr, "[WARN] "+format+"\n", a...)
+				}))
+			}
+			var files int
+			ys, files, err = scanner.LoadYaraRules(rulesPath, yopts...)
+			if err != nil {
+				return finish(report.Input{RunError: fmt.Errorf("YARA: %w", err)})
+			}
+			defer ys.Close()
+			status("[*] Compiled %d YARA rules from %d file(s) at %s (%d warning(s))",
+				ys.RuleCount(), files, rulesPath, len(ys.Warnings()))
+		}
+	} else {
+		status("[*] YARA disabled")
+	}
+	if f.noHeur {
+		status("[*] Heuristics disabled")
+	} else {
+		status("[*] Heuristics enabled (threshold %d)", f.heurThreshold)
+	}
+
+	engine := &scanner.Engine{
+		DB:                 db,
+		Yara:               ys,
+		Heuristics:         !f.noHeur,
+		HeuristicThreshold: f.heurThreshold,
+		MaxInMemory:        f.maxInMemoryMiB << 20,
+		Jobs:               f.jobs,
+		FollowSymlinks:     f.followSymlinks,
+	}
+
+	// ── scan ──
+	start := time.Now()
+	in := report.Input{}
+	for _, target := range targets {
+		info, err := os.Stat(target)
+		if err != nil {
+			in.Results = append(in.Results, scanner.ScanResult{FilePath: target, Verdict: scanner.VerdictError, Error: err})
+			continue
+		}
+		if info.IsDir() {
+			status("[*] Scanning directory %s", target)
+			rs, hs := engine.ScanDirectory(target, nil)
+			in.Results = append(in.Results, rs...)
+			in.Heuristics = append(in.Heuristics, hs...)
+			continue
+		}
+		status("[*] Scanning %s", target)
+		r, h := engine.ScanFile(target)
+		in.Results = append(in.Results, r)
+		if h != nil {
+			in.Heuristics = append(in.Heuristics, *h)
+		}
+	}
+	in.Elapsed = time.Since(start)
+	return finish(in)
+}
+
+func printBanner(w io.Writer) {
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+	fmt.Fprintf(w, " %s %s\n", toolName, version)
+	fmt.Fprintf(w, " %s\n", toolTagline)
+	fmt.Fprintln(w, " Detection: Hash Signatures + YARA Rules + Heuristics")
+	fmt.Fprintln(w, strings.Repeat("=", 60))
+	fmt.Fprintln(w)
+}
+
+// ── add-hash ─────────────────────────────────────────────────────────────────
+
+func cmdAddHash(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("add-hash", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	hash := fs.String("hash", "", "hash value to add")
+	typ := fs.String("type", "", "hash type: MD5, SHA1 or SHA256 (default: inferred from the length)")
+	name := fs.String("name", "", "threat name (e.g. \"WannaCry Ransomware\")")
+	db := fs.String("db", "", "signature database (default: auto-discovered)")
+	if err := fs.Parse(args); err != nil {
+		return report.ExitUsage
+	}
+	if *hash == "" || *name == "" {
+		fmt.Fprintln(stderr, "[ERROR] --hash and --name are required")
+		fs.Usage()
+		return report.ExitUsage
+	}
+	hashType := *typ
+	if hashType == "" {
+		t, ok := scanner.HashTypeFor(*hash)
+		if !ok {
+			fmt.Fprintf(stderr, "[ERROR] cannot infer the hash type of %q from its length; pass --type\n", *hash)
+			return report.ExitUsage
+		}
+		hashType = t
+	}
+	dbPath, searched := findResource(*db, envSignatures, relSignatures)
+	if dbPath == "" {
+		fmt.Fprintf(stderr, "[ERROR] signature database not found; pass --db (searched: %s)\n", strings.Join(searched, ", "))
+		return report.ExitUsage
+	}
+	if err := scanner.AddSignature(dbPath, hashType, *hash, *name); err != nil {
+		fmt.Fprintf(stderr, "[ERROR] %v\n", err)
+		return report.ExitRunFailed
+	}
+	t, h, _ := scanner.ValidateHash(hashType, *hash)
+	fmt.Fprintf(stdout, "[+] Added to %s: %s|%s|%s\n", filepath.Clean(dbPath), t, h, strings.TrimSpace(*name))
+	return report.ExitOK
 }
