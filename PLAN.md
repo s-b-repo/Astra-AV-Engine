@@ -352,6 +352,43 @@ schemas. Drift between them is a CI failure.
 
 ---
 
+### OpenEDR gap analysis — the open benchmark, and the traps not to repeat
+
+OpenEDR (Comodo's open-source EDR) is the only complete open-source EDR codebase
+worth benchmarking against. It earns credit for publishing the agent at all — and its
+own public surfaces (README architecture, issue #56, issue #40) document gaps that
+double as both the wedge list for this plan and the acceptance-criteria traps an
+open EDR must not repeat, this one included. Facts stay class-level:
+
+| Gap | Public evidence | Astra's owning row |
+|---|---|---|
+| Windows-only agent | single-agent docs, no Linux/macOS/CI sensor | Linux-first scope plus the platform rows — the surface no one covers |
+| User-mode injection architecture | README: "Injected DLL … hooks API calls", plus a driver-borne "Loader for Injected DLL" into each new process | eBPF/LSM-first sensor with a no-injection pledge — injection primitives in a sensor are its own attack class |
+| Public privilege-boundary disclosures | tracker #56: LPE, RCE, DoS/bugcheck, SYSTEM-exec, and telemetry-bypass classes | exploit-attempt ledger + anti-tamper + parser-fuzzing gates — those same classes are our fixture requirements |
+| Injector-module risk | tracker #40: "Vulnerabilities in the DLL injector module" | the no-injection design closes this class by construction |
+| Self-protection unresolved in public | community asks how an admin is prevented from stopping the service; no prominent public answer | no-silent-kill + self-heal + hardware-anchored identity |
+| Raw base-event shipping to ES, local-file policy | telemetry via filebeat to locally/cloud-hosted Elasticsearch; policy from a local file with client-side patterns | one-event model, FOSS SIEM sink matrix, Phase 1 gates, `cau coverage` honesty artifacts |
+| Fuzzy self-host boundary | deployments assemble ES/filebeat themselves and ask which parts need registration | the free persona is complete by design; no fake caps (licensing rows) |
+| Content without contracts | "standard rules" shipped, no model cards/provenance manifests on detections | the standards program's detection-evidence contract |
+
+- [ ] Same-report parity test: every public OpenEDR vulnerability class — LPE, RCE,
+  bugcheck, SYSTEM-exec, telemetry-bypass — maps into the exploit-attempt ledger as a
+  fixture requirement. If the same class exists in this sensor, the anti-tamper and
+  fuzzing gates must catch it, and the coverage render states the pairing explicitly.
+- [ ] No-injection build gate: the sensor ships zero injection primitives; CI greps
+  the sensor source for injection-pattern APIs as a build gate — the pledge is
+  enforced by the build, not by prose.
+- [ ] Measured rivalry: when the third-party scoring gate lands, OpenEDR's policy and
+  pattern artifacts run through the same Phase 1 fixtures alongside Astra's own —
+  published numbers, not opinions.
+- [ ] Fork-lineage audit: whatever the Phase 0 cleanup carried over from the original
+  engine, every trap above gets an explicit acceptance-criteria checkbox in the fork's
+  follow-up list — inherit the code, never the class of flaw.
+- [ ] Respect note: OpenEDR published a working agent when almost nobody would. The
+  benchmark's value cuts both ways, and the plan says so rather than dunking.
+
+---
+
 ## Phase 8 — Firmware & boot-chain scanning (the shared blind spot)
 
 Everything above scans what lives on the disk and stops at the OS boundary. Firmware
@@ -1576,6 +1613,166 @@ for this plan's execution at the done-right standard:
   environment-diversity row moves from B- to A at eval time.
 - [ ] The third-party scoring gate is simultaneously the independence fix — the same
   component moves both rows that grade below B.
+
+---
+
+---
+
+## Detection-quality program — improving the rows that already exist
+
+The sweeps added planes; this program improves the *quality* of detection on every
+plane — the gap between "a row exists in the matrix" and "the row fires at its target
+FP/FN in production" is where detection programs actually live or die.
+
+| Improvement | What it changes | Tie-in |
+|---|---|---|
+| Detection fusion lattice | independent weak analytics fuse into one score — beating one detector costs little; beating a fusion of sources costs multiplicatively, since each layer must be evaded separately with uncorrelated errors | behavior engine (Phase 5) + eval gates |
+| Fleet-relative behavioral novelty | "first-seen *in this fleet*" as an analytic, not just per-host first-seen: a process behavior on 2 hosts of 1000 outranks the same behavior fleet-wide-ubiquitous — FP suppression and novel-threat detection in one move | Threat Graph (Phase 7 #8), prevalence tables |
+| Detection-liveness program | per-module synthetic signal injection (each tap must echo a signed canary event end-to-end) + fleet canary hosts running periodic full-pipeline checks — a silently broken pipeline becomes visible in minutes, not at the incident | `cau selftest`, aliveness monitor |
+| Retro-sweep on intel updates | newly-landed detection content re-scans the recent local backlog (recent scannables, recent telemetry) so a rule catches up on history instead of only firing forward — with the retro-window size and the catch-up quarantine results rendered | Phase 4 content lifecycle, quarantine primitives |
+| Verdict feedback ledger | analyst dispositions (TP/FP/benign-true) feed per-detection calibration with published FP/FN trend lines; dispositions are class-level metadata, never content | console surfaces, detection-debt metric |
+| Governed suppressions | recurring benign patterns can be silenced — as *expiring, signed, audited benign-pattern contracts* with mandatory quarterly re-review. A suppression is a benign-class annotation, never a malice-acceptance, and the governance section gains exactly this clause so it can't become a bypass surface | no-risk-accepted rule (Policy governance) |
+| Temporal baselining | circadian and work-period-aware confidence weighting — same behavior at 3am and at 14:00 on a Tuesday is not the same signal on a workstation fleet | agent types, per-agent-type eval weights |
+| Privileged script telemetry | command-line capture for root/sudo lineages only, opt-in per fleet profile with full privacy accounting — Linux's missing PowerShell-script-block equivalent, scoped honestly | session plane, privacy rules |
+| Evasion-cost curves | per-detection published cost-of-evasion curves from the bypass corpus — what an attacker must spend (time, primitives, surface) to retain attack value — detection economics instead of "detected/not detected" | Phase 6 evasion suite, Phase 11 renderings |
+| Streaming scan plan | chunked, resumable scan of multi-GB files in the write path with hard budget caps — large-file handling stops being a timeout race and becomes a scheduled, interruptible stream | engine budget gates (Phase 1) |
+
+- [ ] `internal/fusion`: the lattice joins the one internal event model — fusion inputs
+  carry their evidence labels through, and a fused verdict renders *which* sources
+  agreed, not just the score.
+- [ ] `internal/novelty`: fleet-relative first-seen persists per behavior-class key;
+  the novelty ledger feeds the Threat Graph like the device and NIC inventories do.
+- [ ] Canaries are content, not code: the canary event generator ships in the detection
+  content pack, signed like every other pack item, so liveness checks rot as slowly
+  as the detections they verify.
+- [ ] Measure or don't ship: no improvement lands without per-detection before/after
+  numbers on the same Phase 1 fixtures — the counter-claims (FP reduced, FN unchanged,
+  latency flat) published where the detection's model card lives.
+- [ ] Governance seam, written down once: benign-pattern contracts satisfy the
+  no-risk-accepted rule *by construction* — they annotate benign patterns and expire;
+  anything that would silence true-positive classes is, by definition, not a
+  suppression and goes through the incident-and-response surface instead.
+
+---
+
+---
+
+## Design-debt audit — flaws in this plan's own architecture
+
+Coverage gaps are easy to add; this section is the harder pass — reviewing the plan
+against itself. Eight design flaws exist in the current architecture as written. Each
+stays a flaw until a design fixes it, not a paragraph.
+
+**1. Event-model drift from module sprawl.** Ten-plus internal modules
+(`netguard`, `usbguard`, `sessiontap`, `pkgmon`, `exploitledger`, `hwanchor`, `echolane`,
+`garlic`, …) now feed the "one internal event model" claim. Left unspecified, they
+drift into per-module formats and re-fragment the model the plan keeps citing.
+Fix: a typed event-model registry — every module ships its event schema family plus a
+conformance suite against the registry in CI, or it doesn't merge. The sink matrix
+stays single-source at the registry, not at the promise.
+
+**2. Tap-sum footprint.** Session taps, quiet-plane taps, install holds, transport
+taps, ledger taps — each individually budgeted, jointly unaccounted. The RSS ceiling
+and throughput budgets are per-program, not per-host-sum. Fix: a tap governor — every
+tap declares its volume class (low/high/burst), per-class rate shaping with labeled
+loss, and the *sum* flat-capped per host with shedding order published. The
+agent-footprint sales point (Phase 7 #7) survives only if the sum is measured.
+
+**3. No policy compiler.** Fleet profiles, class policies, allow-lists, thresholds,
+hold deadlines, retention contracts, transport-ladder defaults — each feature invented
+its own config surface. Config sprawl with divergent semantics is how "profiles" stop
+meaning anything. Fix: one typed, signed policy schema with per-feature manifests and
+explicit precedence rules; agent-types, fleet profiles and tenant hierarchy normalize
+through it rather than each having private knobs.
+
+**4. Update-in-flight semantics are unspecified.** Signed release channels and
+anti-rollback exist; what happens *during* a sensor replacement does not — a watch-gap
+mid-update is exactly the window an attacker wants. Fix: drain-and-handoff — the old
+sensor drains its queue, the tap set hands over with no-watch-gap asserted by selftest,
+receipts are version-tagged, and a failed handoff rolls back atomically.
+
+**5. The sensor's privilege model is unspecified.** Most taps need capability (exec-perm
+hold, XDP, kcore reads, flash-write taps) — but the plan never partitions privilege
+inside the sensor itself. One watcher holding everything means one compromise holds
+everything. Fix: a privilege-partitioned helper tree — capability sets declared per
+tap, separate helper processes sized to their cap set, kill-scoped blast radius, and
+the engine's decision path never reachable from any single helper.
+
+**6. The self-heal / NOVEL-005 irony.** Our own row flags exclusive-tenancy wars —
+agents killing other agents. Our self-heal mechanic (auto-reinstall on remove) is
+behaviorally indistinguishable from that war *to other agents watching us*. Fix:
+self-heal is open by label — reinstall only from the customer's configured channel,
+rate-limited, profile opt-in, and emitting a `fleet-policy self-heal` event every time
+so other agents observing us see policy, not a fight. Our NOVEL-005 detector should be
+able to accept our own behavior by those labels alone.
+
+**7. Local evidence is tamperable before transport.** Encrypted spool covers console
+delivery; the on-host event journal itself can be deleted or edited by root before any
+of it ships. Fix: an append-only, hash-chained local evidence journal — TPM-sealed
+head via the hardware-anchor row, deletion or edit attempts are ledger events in
+their own right, and the journal survives the kill attempts that the harder-to-kill
+rule says must leave survivable evidence.
+
+**8. Field FP is unmeasured.** Every FP number in the plan is fixture-derived. Synthetic
+blue/red pairs test the generator's realism, not the fleet's — the methodology-rating
+section's "field-FP calibration" gap remains. Fix: the prevalence co-op becomes the
+calibration instrument — opt-in, class-level production FP measured per fleet-class,
+published against the fixture numbers so each detection's model card carries *both*
+(claimed and observed). Where they diverge, the divergence is the headline, not a
+footnote.
+
+- [ ] Registry, governor, policy compiler: three design docs land in `specs/` (they
+  qualify as standards-program items: event-model registry, tap-governor contract,
+  typed policy schema), each with a conformance suite — the standards program is the
+  enforcement mechanism, not another label.
+- [ ] The flaw-to- acceptance mapping: every design deck item above becomes a checkbox
+  in the phase that owns it (kernel → #7 journal; console → #6 labels; Phase 1 → #2
+  measurement), so the audit is scheduled rather than admired.
+- [ ] CI: neither event-model conformance, tap-governor sum caps, nor policy-schema
+  validation pass until their suites exist — new modules land *with* their schema,
+  never behind it.
+- [ ] Honesty line: the audit itself is re-run each release cycle; a fixed flaw stays
+  fixed only if its conformance suite stays green — design debt has a gate now, not
+  just a list.
+
+---
+
+---
+
+## Performance-gap sweep — the contracts that are still missing
+
+Phase 1 gates throughput, memory and timeouts; closing-the-loop §2 budgets per-hook
+overhead and pipeline SLOs; the tap-governor caps the per-host sum. What's still
+missing is the contract *per domain* — the performance work that has no number yet:
+
+| Domain | Missing performance contract | The ask |
+|---|---|---|
+| Scan-result cache | no verdict cache exists — node_modules-scale trees re-scan identical content endlessly | content-hash verdict cache with pack-update invalidation (retro-sweep interplay), bounded size, hit-rate published |
+| Engine worker pool | scan parallelism and I/O strategy unplanned | mmap/page-cache-friendly IO, worker pools sized under the memory ceilings, per-worker memory budgets |
+| Event aggregation | the drop policy sheds under load but nothing *shrinks* load honestly | coalescing of identical repeated events into labeled aggregate events with counts — volume reduction without lying |
+| Boot-window coverage | nothing measures how fast the sensor is *covering* after boot; pre-attach events are lost silently | time-to-covered per platform as a published metric; honest backfill via journald where available, gap-marked where not |
+| Ephemeral attach latency | containers/CI runners churn faster than traditional fleets | container start-to-protected latency measured per runtime, CI-storm case benched |
+| Ruleset compile budget | YARA/ruleset load time and pack size unplanned | compile-time and pack-size budgets, delta pack updates, incremental compile on hot reload |
+| Console query SLOs | pivot/graph queries have no latency contract | graph-query latency caps, precomputed aggregates, pagination — the analyst console must answer in interactive time at fleet scale |
+| Vault economics | retention/compaction/index growth unplanned | partitioned indexes, compaction schedules, storage caps with retention contracts enforced |
+| PQC overhead | garlic/echo-lane require hybrid E2E per sink; ML-DSA receipts are *large* — unpriced | bytes+CPU per crypto op published per event class, receipt batching where signature size dominates |
+| QUIC reconnect storms | ephemeral fleets reconnect constantly; handshake cost unpriced | anti-amplification rules, handshake caches, 0-RTT bounded by receipt pinning (no 0-RTT replay credit) |
+| Per-arch parity | the arch matrix ships but performance parity is untested | the same SLO table per architecture — riscv64's honest delta published, not hidden behind one number |
+| Fleet-scale soak | console horizontally-scaling knobs never exercised | nightly simulated-fleet soak (10k hosts) with scaling curves published *before* they're needed |
+
+- [ ] `cau bench`: one harness, every domain registers a scenario, benchstat artifacts
+  per run, regressions fail like any gate — the multi-domain gap closes only if
+  measurement is one convention, not twelve.
+- [ ] Bench-versus-fleet honesty: CI-runner numbers and real-fleet numbers are
+  published side by side — the canary-host program (detection-liveness) doubles as the
+  performance-canary fleet running synthetic load, with per-class p50/p99 reported.
+- [ ] Kernel-side budgets land explicitly: BPF map memory caps, program-size and
+  verifier limits, measured per-program attach cost — the kernel plane's performance
+  budget is a document, not a hope.
+- [ ] Crypto-DoS joins the coin side: repeated KEM-handshake forcing is rate-capped
+  the way peel DoS was, with the same fairness model.
+- [ ] Every number lands on the model-card surfaces the plan already publishes — no
+  performance claim without its measurement conditions, per the standards program.
 
 ---
 
