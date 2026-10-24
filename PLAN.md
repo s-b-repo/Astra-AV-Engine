@@ -437,6 +437,8 @@ catch and how to catch it, not how to build it. This Phase 4-connected work maps
 | NOVEL-009 | systemd generator unit injection | generator inventory vs provenance; diff transient units under `/run/systemd/generator` | none (T1543 family gap) |
 | NOVEL-010 | eBPF filtering of the audit subsystem | in-kernel BPF program attach inventory on audit/lsm hooks; anything not fleet-pinned alerts | none |
 | NOVEL-011 | CRIU checkpoint/restore process resurrection | checkpoint-image monitor + restore-invocation tracing + exec-less lineage anomaly alert | none |
+| NOVEL-012 | Multi-method obfuscation chaining in binaries (encoding→packing→encryption stacks, depth as a signal) | chain-depth estimator + bounded peeling pipeline + peel-exhausted honest states; runtime unpack taps as the sensor-side complement | T1027 family (partial) |
+| NOVEL-013 | Script-level multi-encoding chains (eval loops, macro-stomp + remote-template + encoded-payload stacks) | script-AST transformation capture through the chain — the normalized final-call surface, not the raw text | T1027 + T1059 family (partial) |
 
 - [ ] Engine-side `internal/stego`: zero-width codepoint detector for text and code
   artifacts, with a YARA module backing it — presence-based, because density thresholds
@@ -452,6 +454,62 @@ catch and how to catch it, not how to build it. This Phase 4-connected work maps
 - [ ] `frameworks` gains a `novel: NOVEL-xxx` field beside the ATT&CK/UKC/MISP IDs, and
   each technique family is drafted as an ATT&CK submission with detection strategies —
   the honest path for detection-first research to be upstreamed.
+- [ ] `internal/peeler`: bounded unpeeling pipeline walking the candidate *tree* via
+  parallel unwrap (the DoS design below). Over-cap yields a `peel-exhausted` outcome
+  routed to emulation fallback — an honest result rendered first-class — never
+  silent-clean.
+- [ ] Chain-depth estimator as a cheap pre-pass: entropy-segment profiling plus
+  structural fingerprints (overlay chains, packed-import tables, section anomalies)
+  route samples to specialized peelers (archive / packer / script) before full peel cost
+  is paid. Depth itself is a signal: layer counts above a threshold raise the score
+  regardless of the payload verdict, so a chain that outlives the gate still flags.
+  Provenance reconciles benign packers — nested packers inside official packages don't
+  alert, the same FP rule as everything else.
+- [ ] Chain-signature model: each peel records the ordered transformation set it
+  removed; ordered chain patterns become family signatures — the multi-layer equivalent
+  of a hash — and enter the same detection-content lifecycle with model cards.
+- [ ] Emulation-sidecar fallback (Phase 5 runtime): peel-stalled samples run
+  unpack-then-scan in the isolated sidecar — snapshot memory, scan the unpacked image,
+  same budget caps as static peel.
+- [ ] Sensor complement in `internal/behavior`: runtime unpack behavior taps — large
+  writable→RX transitions, write-then-execute patterns, self-decryption loops. A chain
+  that defeats static peeling meets telemetry that doesn't care how many layers were
+  applied.
+- [ ] Eval-time synthetic chains: the Phase 1 generator *composes* its own
+  obfuscation-path library into randomized chains for blue/red fixtures. Depth-swept
+  FP/FN must stay flat as depth grows, and multi-layer fixtures land in CI as
+  regression cases.
+- [ ] Peel-as-tree, not peel-as-chain: each layer's candidate continuations spawn as
+  bounded speculative tasks on a work-stealing pool. The budget wall — cpu-ms, allocated
+  bytes, syscall counts, wall-clock — is *global per sample*, shared across every
+  branch: an attacker adds depth, not spend, and where the budget goes is the engine's
+  choice, not the sample content's.
+- [ ] Estimator-guided task graph: the chain-depth estimator ranks the frontier;
+  low-probability branches queue last and are cancelled mid-run when the budget counter
+  passes its floor. A cancel carries its reason — "peel-exhausted (budget), branch-cancel
+  at layer N" is a labeled outcome, not a generic failure.
+- [ ] Wall-clock bounded by construction: speculative parallel unwrap caps
+  time-to-verdict regardless of chain design — a stall-shaped chain burns its own
+  budget, not the scan queue. Queue-level DoS dies at this row.
+- [ ] CPU honesty, stated plainly: parallelism reduces latency, not cost — aggregate
+  CPU per sample can rise. The DoS boundary is the budget wall plus fairness; the plan
+  does not pretend the tree buys a free lunch.
+- [ ] Per-source fairness: tenant-level token buckets on the scan queue — a flood from
+  one tenant can never consume the fleet's peel capacity. Ties to the multi-tenancy
+  pricing row.
+- [ ] Content-addressed dedupe: peel artifacts land in a CAS keyed by blob hash — a
+  repeated identical chain costs O(1) after its first peel, and the duplicates-flood
+  vector amortizes to nothing.
+- [ ] Bounded task-graph invariants: max in-flight children per node, no unbounded
+  queues, workers die on budget exhaustion, cancellation is cooperative. These are
+  asserted by Phase 1 conformance tests, not just documented.
+- [ ] DoS honesty: Phase 9's decompression-bomb caps extend across the tree path —
+  "peel-exhausted, N layers observed" is still the rendering for anything that hits a
+  wall, and CI depth-sweep fixtures assert the wall-clock cap holds across chain shapes
+  while benchstat tracks the aggregate-CPU delta so the same-budget guarantee is
+  measured, never assumed.
+- [ ] ATT&CK framing: T1027 family (partial) with the chain-pattern classification
+  itself drafted as an ATT&CK submission alongside the other NOVEL families.
 - [ ] Publication rule: detectors, synthetic fixtures and templates are public; the
   offensive framing (bypass notes, source implementation, live payloads) does not enter
   this repo. If a technique description cannot be written without becoming a recipe, it
@@ -657,6 +715,48 @@ Phase 7 #1 attestation pipeline from boot-time to the runtime lifecycle.
 
 ---
 
+## Exploit-attempt ledger — kernel, hardware, network planes
+
+The plan's existing rows detect behavior and persistence. This adds the third tier: the
+*attempt itself* — exploitation events caught as events, before (or without) any
+compromise landing — formalized across planes into one ledger instead of scattered
+signals. Some taps exist already (kcore alerts, taint drift, kallsyms diffs, kprobe
+hook inventory); the ledger is what makes them the same thing.
+
+| Plane | Attempt events the ledger receives |
+|---|---|
+| Kernel | oops/BUG event clusters, taint-state changes, `/proc/kcore` + `/proc/kallsyms` access from unexpected lineages, kprobe/ftrace registration by non-package lineage (extends the anti-tamper section's per-check inventories into the attempt surface) |
+| Privilege | ptrace / `process_vm_readv/writev` against privileged targets, setuid-exec chains from unexpected parents, capset events — the privesc ladder, observed rung by rung |
+| Hardware | flash/MTD/ESP firmware-write events from non-updater lineage (the companion to the Phase 8 scanner: attempts caught as events, implants caught as images), PCIe enumeration diffs, IOMMU/DMA-fault events formalized out of the device-plane rows |
+| Network | protocol-anomaly probe storms at service ports (T1595.002), malformed-flag sweeps (packet-addendum tie), and the probe→fault→lineage chain that upgrades a probe to a confirmed attempt; the netguard MITM rows supply the L2 half |
+| Memory | memfd/deleted-inode exec (T1106) and the runtime unpack taps (NOVEL-012) join as compromise-evidence classes |
+
+- [ ] `internal/exploitledger`: one attempt-ledger keyed by lineage and evidence class,
+  unifying the taps above; every entry carries a *status* — attempt observed vs
+  compromise confirmed — resolved from chain state, never merged.
+- [ ] Attempt→compromise upgrade is the ledger's whole point: fault-then-lineage,
+  unpack taps and crash capture can promote an entry, and the promotion event itself
+  lands as a timeline pivot ("attempt → confirmed" is one graph hop).
+- [ ] Coverage honesty: attempts and compromises count separately in every coverage
+  rendering, forever — an attempt is never padded into a compromise and vice versa.
+- [ ] Hardware-plane boundary, stated: implants below PCI-enumeration visibility do not
+  run on this host — Phase 8's scanner is the sole truth source; the ledger carries
+  interception *attempts* and documents the floor, not iommu-backed completeness.
+- [ ] Ring-0 boundary, stated: a fully compromised kernel defeats runtime checks by
+  definition — the ledger carries attempt evidence; prevention claims live in the
+  anti-tamper section and nowhere else.
+- [ ] Fleet pivot: "three hosts observed the same probe/flash/DMA shape within an hour"
+  is an automatic fleet-incident class, the netguard corroboration pattern applied to
+  the attempt plane.
+- [ ] Perf honesty: attempt-class taps vary wildly in volume — kcore reads are rare,
+  probe storms are not — so per-class throughput budgets and drop-policy under load
+  apply, benched in CI.
+- [ ] Fixtures: synthetic oopses, flash-write events and protocol probes generated at
+  eval time, blue/red pairs only — attempt-class FP/FN numbers through the Phase 1
+  gates.
+
+---
+
 ## Defense-in-depth hardening — the product is also a target
 
 Every layer of this architecture is itself attackable surface. The stance from the scope
@@ -712,6 +812,135 @@ NOVEL-005 row, name-independent supervisors keep firing (self-protection section
 tamper fails closed, and a kill attempt escalates to crash capture. Camouflage and
 anti-detection styling of our own components remain refused under the scope note:
 discovery resistance here means attack failure, not invisibility.
+
+---
+
+---
+
+## Garlic-routed telemetry — agents forward what relays can't read
+
+Transport architecture, borrowed from I2P's garlic routing: telemetry travels in
+multi-hop bundles ("cloves") where every forwarding hop peels only its own routing
+layer and forwards what it cannot read. Only the sink's key opens the contents — and
+there are two sinks, each with its own key.
+
+| Path element | What it does |
+|---|---|
+| Clove bundling | the agent batches event cloves into shipments; padding to size classes and timing jitter/mix budgets shrink traffic correlation |
+| Per-sink end-to-end encryption | the dashboard and the customer's Wazuh sink each receive an independently E2E-encrypted copy — Astra never holds the Wazuh sink's key, so Astra cannot read the customer's SIEM events |
+| Hop-layer separation | relays (Astra-operated, customer-owned fleet relays, or community relays) learn only that traffic passed and who their neighbors are; host identity rides the E2E layer only, never the hop layer |
+| Fleet relay mode | self-hosted relay mesh stays inside the customer network — the air-gapped deployment gets garlic routing with zero Astra transit |
+| Direct fallback | relay-mesh outage falls back to direct QUIC with a `transport: direct-fallback` label rendered in coverage — delivery never silently changes character |
+
+- [ ] `internal/garlic`: clove bundler (batching, size-class padding, jitter/mix
+  budgeting), hop-layer crypto, and per-sink receipts; no relay anywhere holds a
+  content key.
+- [ ] Cryptography: hybrid X25519+ML-KEM-768 key agreement on QUIC/TLS 1.3, ML-DSA
+  signatures for relay receipts — extending the Phase 9 post-quantum chain from
+  update bundles to the telemetry path. Terminology honesty: the plan says
+  *post-quantum cryptography* against quantum adversaries' future compute, never
+  "quantum encryption/QKD" — QKD needs specialized hardware shipments and is not what
+  ships; no overclaim enters any surface.
+- [ ] QUIC mechanics: per-class streams (priority events and bulk telemetry share one
+  connection cleanly), 0-RTT resume for ephemeral/CI sensors that reconnect constantly,
+  connection migration for mobile or DHCP-shuffled fleets.
+- [ ] Latency honesty: garlic routing buys metadata privacy with latency — so critical-
+  class events may default to a short path (one hop or direct) as an explicit per-class
+  fleet-profile choice, and the default is stated, never silent. Bulk telemetry takes
+  the full path.
+- [ ] The traffic-analysis claim is enumerated precisely: relays gain content
+  confidentiality and neighborhood-only metadata — strictly better than the industry-
+  default direct upload, and *not* a claim of perfect anonymity set. Where correlation
+  remains possible, the doc says so.
+- [ ] Replay protection: monotonic-counter receipts from the hardware-anchor row chain
+  into sink ingestion — a replayed batch cannot re-enter either sink.
+- [ ] Relay fairness: token buckets per source-relay mirror the peeler fairness rules
+  — a flooded relay can't starve the fleet's transport, and DoS budgets benched in CI.
+- [ ] Self-hosted console note: customers who want *no* Astra-readable copies at all
+  point both sinks at self-hosted infrastructure; the dashboard path exists for those
+  who don't. Both paths are rendered in pricing and the licensing rows, not hidden.
+- [ ] `cau selftest` gains a transport row: mesh-hop aliveness, hop-crypto handshake
+  state, and fallback state surface in fleet health.
+
+---
+
+---
+
+## Transport ladder for server fleets — when direct and mesh fail
+
+The garlic section's direct fallback assumes egress exists. Server fleets often do
+not: strict-firewall egress, QUIC-blocking middleboxes, mandatory proxies, and
+occasional total loss of outbound. The ladder below is the order the sensor tries,
+per fleet profile, with every rung transition rendered as its own timeline event.
+
+| Rung | Path | When it applies |
+|---|---|---|
+| 0 | Fleet egress diversity: a neighbor server with an alternate route carries the stuck host's alert-class events over the local link | direct fails, a fleet sibling has egress |
+| 1 | Direct QUIC on 443 | normal operation |
+| 2 | TCP-443 with HTTP/2 framing | middleboxes block UDP/QUIC |
+| 3 | Customer proxy — `HTTPS_PROXY`/CONNECT, PAC-aware; MASQUE-style HTTP/3-in-TCP tunneling | strict firewalled egress |
+| 3.5 | Echo-lane — QUIC-like alert transport over ICMP echo, post-quantum E2E | UDP, TCP and proxies all filtered; ICMP survives |
+| 4 | Emergency band — BMC/Redfish or a pre-provisioned bastion pull, alert-class events only | all host egress fails |
+| 5 | Local spool with retention caps, host rendered `transport: unreachable` | everything fails |
+
+- [ ] Spool is encrypted at rest under the vault row and replay-safe: monotonic
+  receipts from the hardware-anchor row dedupe redelivery on reconnect, so a full
+  spool drains once, not twice.
+- [ ] When the spool fills, the event-loss policy decides what sheds — by labeled
+  class, never silently, and the rendering says which classes dropped and why.
+- [ ] Emergency band is opt-in and BMC-honest: it depends on controller presence and
+  admin consent, carries alert-class only, and is documented as a quarantine-grade
+  band rather than telemetry — the BMC stays what the cross-system sweep says it is.
+- [ ] Fleet egress diversity is opt-in and L2-local: the carrying host forwards under
+  the garlic receipt scheme, and carries under the same token-bucket fairness so a
+  carried host cannot flood its carrier.
+- [ ] Air-gapped servers use rung 5 + the media shuttle: spool ships by signed,
+  manifest-verified removable media — the update channel's post-quantum chain covers
+  the telemetry shuttle both directions.
+- [ ] The ladder is per-fleet-profile configuration with stated defaults; every rung
+  transition lands on the timeline (`transport: rung-3-proxy` etc.), and `cau
+  selftest` renders current rung, spool depth, and last-success rung in fleet health.
+- [ ] A host is never dark: `transport: unreachable` is a *state* in the console, not
+  an absence — consistent with the no-silent-kill rule.
+
+---
+
+---
+
+## Echo-lane — post-quantum ICMP transport for alert-class events
+
+ QUIC's semantics rebuilt over ICMP echo request/reply: connection identity in the
+echo identifier, offsets in the sequence space, payload bytes in the echo data — the
+last usable wire in networks where UDP, TCP and proxy egress are all filtered but
+ICMP echo passes. Named honestly: this is PQC over a hostile path, not "quantum
+encryption" per the standing terminology rule.
+
+- [ ] `internal/echolane`: connection-id → echo identifier, stream offsets → sequence
+  space, payload chunking across consecutive echo frames at path MTU (~1472 bytes per
+  echo at 1500). Reliability via reply-acked windows with idempotent, nonce-keyed
+  retries. Stream multiplexing rides the garlic clove model so the lane and the mesh
+  share one framing.
+- [ ] Crypto parity: the same per-sink hybrid X25519+ML-KEM-768 end-to-end agreement
+  and ML-DSA receipts as every other lane — no downgrade because the path is hostile,
+  and monotonic-counter receipts keep replayed frames out of the sinks.
+- [ ] Class honesty: alert-class only, never bulk telemetry. ICMP is kernel rate-limited
+  (`icmp_ratelimit`), middlebox-deprioritized, and MTU-capped — the lane paces under
+  the default limits and does not pretend to be a full transport. Bulk stays on the
+  spool; the ladder's rung 5 remains the honest fallback.
+- [ ] Detector self-consistency: the plan's own T1095 ICMP analytics flag unpinned
+  echo payload-cadence *by design* — the echo lane is provenance-pinned (fleet-pinned
+  sink identifiers, sensor-signed receipts on both directions) and emits a
+  `fleet-owned echo lane` event class, so our own detector and our own lane coexist
+  honestly. `cau selftest` asserts the pinning instead of assuming it.
+- [ ] Spoofing honesty: ICMP is trivially spoofable — nothing in-band is trusted
+  before ML-DSA receipt verification, and "on-path or ring-0 attackers can inject
+  noise" is stated in the lane's own documentation. The channel's answer is
+  authentication and receipts, not the IP layer's goodwill.
+- [ ] Injection-tolerance: frame-level nonce idempotence means duplicate or
+  attacker-injected frames are detected and dropped at receipt verification; budget
+  for the DoS class is the same fairness model as the relay and peel paths.
+- [ ] Timeline ties: `transport: rung-3.5-echo-lane` transitions are timeline events
+  like every other rung, and the layer renders in fleet health.
 
 ---
 
@@ -909,6 +1138,136 @@ lineages and config diffs, not new telemetry volumes.
 - [ ] Canary extension — honeycred: planted token-shaped strings in predictably-read
   credential stores, which only an attacker ever reaches; the zero-FP class of the
   canary-file primitive extends from files to credentials.
+
+---
+
+## Install-plane scanning — .sh at the moment it is read
+
+Installer execution is the highest-value script plane on a host: dpkg/rpm scriptlets,
+language-ecosystem hooks, and piped installs all run shell the moment software lands.
+The engine's job is to make that the moment it watches hardest — knowable lineage
+*before* exec, content analysis before any write lands.
+
+| Surface | What the scanner does |
+|---|---|
+| exec-perm hold | `FAN_OPEN_EXEC_PERM` holds the open of every script spawned under a package-manager lineage (dpkg/apt/rpm/pacman/npm/pip/cargo children) until the engine renders a verdict — the script is scanned *before* exec completes |
+| payload-ownership reconciliation | the engine resolves which package payload a script belongs to (dpkg database / rpmdb / local metadata, fully offline); scripts executed by installer children that no payload owns flag as install-time tampering |
+| script-content analysis | the shell analyzer checks writes into persistence dirs (systemd, autostart, cron, udev, sleep hooks), authorized_keys appends, LD_PRELOAD exports, curl→exec patterns, encoded blobs, sudoers edits — findings carry the same evidence labels and FP lifecycle as everything else |
+| pipe-delivered installs | `curl | bash` never opens a scannable file — the behavioral rule is lineage-level (network→pipe→shell), and the row says so honestly instead of pretending content capture happened |
+| ecosystem hooks | dpkg postinst/preinst, RPM scriptlets, npm postinstall, pip `setup.py`, cargo `build.rs` feed the T1546.016 row: script-run events per ecosystem reconcile against the provenance store, never a static allowlist |
+
+- [ ] `internal/shscanner`: parses shell scripts as data, not text blobs — an AST bound
+  by the Phase 9 parse budgets, with the YARA module matching AST tokens rather than
+  raw-text regex, so an obfuscated script that evades pattern-matching doesn't evade
+  the structure view.
+- [ ] Verdict semantics are explicit, never silent: hold-and-decide is the default on
+  installer lineages; fleet profiles select hold-installer / hold-all / audit-only. The
+  verdict deadline is configurable — fail-closed by default on installer lineages,
+  fail-open-with-alert as an *explicit* fleet choice. A stalled installer never guesses.
+- [ ] Offline-first: ownership resolution and content analysis run fully air-gapped — no
+  cloud verdict dependency on the install path.
+- [ ] FP rule mirrors the house rule: package-shipped scripts pass via payload
+  ownership; user-local and piped scripts go through content analysis, not name
+  allowlists. Pre-exec decisions are allow/flag/quarantine per fleet profile, each one
+  labeled in the timeline.
+- [ ] Honest edge, stated: scripts executed from `/proc/self/fd` or heredocs bypass
+  file-open entirely — the covered detection there is lineage-level (installer child +
+  exec-from-anon-fd is the alert surface), and coverage renders carry the gap-mark
+  rather than implying content was seen.
+- [ ] Timeline tie: "package X ran script S wrote file F" is one Threat-Graph pivot —
+  the install plane feeds the same chain-evidence model, and CI benches the
+  install-storm case (mass package bursts across many hosts) against the sensor budget
+  and the event-loss policy, so scanning never becomes the queue's DoS.
+
+---
+
+## Installed-plane monitoring — packages, dependencies, quiet planes
+
+Install-time scanning covers the moment software lands; this covers the rest of its
+life. Two tables: the package/dependency plane, and the planes that routinely go
+unmonitored because no agent product grew up around them.
+
+**The package and dependency plane**
+
+| Signal | Detection |
+|---|---|
+| Package lifecycle | install/remove/downgrade events reconciled against the provenance DB — downgrades alert by default, extending the anti-rollback row from release channel to the host's own package set |
+| Installed-binary mutation | installed files hash-diffed against package manifests; mutation outside a package transaction is a tamper alert — the package DB still claims the older content |
+| Dependency substitution | a binary's runtime library set diverging from its manifest's declared dependency set — the loader resolving libs from outside the owning package (dependency-hijack class; adjacent to the T1574 family, listed honestly as partial) |
+| Vendored ecosystems | vendored trees (node_modules, cargo vendor, go vendoring) hashed against their lockfiles on the host — lockfile edits without the lock-owner process running flag |
+| Uninstall scripts | prerm/postrm events scan symmetrically to postinst under the install-plane holds — the removal path is historically less watched |
+| Package-DB integrity | dpkg status / rpmdb reads and writes outside a package transaction — the package *database itself* tampering to hide `(not-obviously-)owned` state |
+
+**The quiet planes — nobody's floor**
+
+| Surface | Why it matters | Detection |
+|---|---|---|
+| SUID/SGID drift | setuid/setgid bits on non-package paths — the classic privesc primitive is invisible in default agent telemetry | bit set/clear events + full inventory diff vs package manifests |
+| Network hooks | NetworkManager dispatcher.d, ifup/ifdown.d, netplan drop-ins, wicked — network-state persistence | drop-in inventory vs package provenance |
+| Print plane | CUPS filters and PPDs run as root on every print event — the printer as an execution plane | filter/PPD first-seen + payload-ownership reconciliation |
+| Pager plane | LESSOPEN/LESSPIPE, man-db filters, groff — code that runs every time someone pages a file | pager-filter config diffs; env-change telemetry on the parent lineage |
+| Portal grant plane | xdg-desktop-portal permission-store mutations — sandbox-piercing grants written without any visible transaction | permission-store diffs first-seen per app-id |
+| Fontconfig drops | font parsers are a classic exploitation surface and font dirs are unmonitored everywhere | font/config drops outside fontconfig-owned dirs first-seen |
+| /dev/shm | exec-class artifacts in shared memory — the dropper segment that never lands on disk | shm exec-class file events, reconciled against package lineage |
+| hosts-file writes | the oldest name-redirection primitive, effectively unmonitored | `/etc/hosts` mutation outside package ownership |
+| Alternatives & triggers | update-alternatives resolution and dpkg trigger registration — the quietly authoritative command-resolution layer | alternatives symlink-state diffs; trigger registration events |
+
+- [ ] `internal/pkgmon`: package-database watch, manifest-diff engine, drift baselines
+  backed by the Phase 7 #5 provenance DB; package transactions define the *legal
+  namespace* — anything outside a transaction that touches installed state flags.
+- [ ] Quiet-plane taps ride the existing sensor modules (fs, session, net taps) — no
+  new daemons; every row lands in `cau selftest` and the fleet-health surfaces.
+- [ ] Same FP lifecycle everywhere: CUPS, font and pager paths are owned by distro
+  packages, so drift-by-payload-ownership keeps FPs near zero without name allowlists.
+- [ ] Adoption honesty: "nobody monitors this" is a differentiation claim — these rows
+  re-check against the inversion table's CI gate like everything else; a row whose
+  claim decays renders as *partial* instead of holding.
+- [ ] Performance honesty: quiet-plane taps are high-frequency surfaces (pager and
+  print events alone can be busy on desktop fleets) — throughput budgets and the
+  event-loss policy apply identically, benched in CI, and the drop-policy states *what
+  sheds under a print storm*.
+
+---
+
+---
+
+## Supply-chain defense — the top five package managers, and the harder-to-kill rule
+
+Language ecosystems (npm, PyPI, cargo, go vendoring) already ride the T1546.016 and
+vendored-tree rows. The five OS-level managers below get their own threat-specific
+surfaces — their escape hatches differ, so the detection rows differ.
+
+| Manager | Supply-chain threat shape it faces | Detection / control |
+|---|---|---|
+| APT / .deb | malicious-mirror metapackages, postinst persistence, unauthenticated-downgrade tricks | scriptlets through the install-plane hold; sources.list.d drop-in diffs per host; apt-keyring writes outside a package transaction alert (pairs with the trust-store row) |
+| DNF / RPM | dnf plugin persistence, %post scriptlets, COPR/repo key churn, rpm key-import tricks | dnf plugin-dir diffs; rpm-keyring watch; scriptlets through the install-plane hold; `rpm --rebuilddb` and rebuild anomalies as package-DB tamper events |
+| pacman / AUR | AUR PKGBUILDs execute arbitrary build code as root on every build; alpm hook drop-ins run pre/post transaction | makepkg/AUR-helper spawn is installer lineage — the hold-scan applies; alpm hook-dir diffs; `/etc/pacman.d` repo drop diffs |
+| snap | lifecycle hooks (prepare/configure/remove), classic-snap command-chains, interface grants changing at install | snap hook inventory per snap-id vs store manifest; interface-grant audit events; snapd socket writes from unauthorized lineage |
+| flatpak | override drop-ins relaxing sandbox permissions at `/var/lib/flatpak/overrides`, fake-Flathub app installs, portal grants | a permission-*relaxing* override write is an alert on its own; portal-grant events tie the grant row; export/commands dirs first-seen |
+
+- [ ] Per-ecosystem provenance keys: the Phase 7 #5 provenance DB gains a keyring and
+  source-list anchor class per manager, so repo/key changes can only come from package
+  transactions — everything else is a first-class alert.
+- [ ] The kill-attempt ledger gets its supply-chain row: any non-package-agent attempt
+  to stop, disable, mask, or uninstall the sensor (systemd unit masks, package-manager
+  removal of sensor packages, profile drop-ins disabling gates, binary deletion) is a
+  first-class event — evidence is captured before the action lands.
+- [ ] Harder-to-kill rule, honest form: the design goal is *harder to kill quietly*,
+  not impossible to kill. Ring-0 attackers end userspace defenses by definition; what
+  the plan claims is that every kill attempt leaves evidence that survives the kill —
+  crash capture, kernel anti-tamper, and the independent aliveness monitor.
+- [ ] No silent kill: selftest/aliveness failure renders the host *degraded* on the
+  console, never dark. A dead sensor is a visible dead sensor.
+- [ ] Self-heal with a floor: fleet policy may auto-reinstall the sensor package from
+  the signed channel on unexpected removal; a second removal inside the window
+  escalates the host. The claim is delay-and-evidence, not invincibility.
+- [ ] Gate-resilience clause: the install-plane holds, payload-ownership checks and
+  package-DB integrity watch all bind into the anti-tamper core — disabling any
+  detection module counts as a kill attempt and rides the same ledger. Supply-chain
+  defenses that can be quietly turned off are not defenses.
+- [ ] Package-manager locks: sensor packages mark themselves protected with the host's
+  own manager mechanisms; removal attempts coerce a console alert plus a fleet-policy
+  response (host containment is an opt-in console action, never autonomous by default).
 
 ---
 
