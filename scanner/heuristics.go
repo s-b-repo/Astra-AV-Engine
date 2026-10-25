@@ -73,6 +73,9 @@ type HeuristicMatch struct {
 	Hits int
 	// Examples holds up to maxExamplesPerPattern matching strings.
 	Examples []string
+	// Technique is the ATT&CK technique the category is evidence for ("" when
+	// none applies). It is derived from the category, never from the file.
+	Technique string
 }
 
 // CategoryScore explains how one category contributed to the total.
@@ -84,6 +87,8 @@ type CategoryScore struct {
 	Applied int
 	Cap     int
 	Weak    bool
+	// Technique is the ATT&CK technique the category maps to, if any.
+	Technique string
 }
 
 // HeuristicResult is the heuristic verdict for one file.
@@ -212,6 +217,77 @@ var weakCategories = map[string]bool{
 	catMemProtect:    true,
 	catUnixShell:     true,
 	catDownloadTool:  true,
+}
+
+// categoryTechniques maps each category to the ATT&CK technique it is
+// evidence for. The mapping is part of the detection content: fused verdicts
+// and the coverage matrix read it, and a category without a mapping is
+// reported as such rather than padded with a loose fit ("Suspicious Paths"
+// is a location hint, not a technique).
+var categoryTechniques = map[string]string{
+	catInjection:     "T1055",     // Process Injection
+	catHollowing:     "T1055.012", // Process Hollowing
+	catAntiDebug:     "T1622",     // Debugger Evasion
+	catTiming:        "T1497.003", // Virtualization/Sandbox Evasion: Time Based Evasion
+	catPrivEsc:       "T1134",     // Access Token Manipulation
+	catRegPersist:    "T1547.001", // Registry Run Keys / Startup Folder
+	catSvcPersist:    "T1543.003", // Create or Modify System Process: Windows Service
+	catStartup:       "T1547.001", // Registry Run Keys / Startup Folder
+	catNetwork:       "T1071",     // Application Layer Protocol
+	catURLDownload:   "T1105",     // Ingress Tool Transfer
+	catKeylog:        "T1056.001", // Input Capture: Keylogging
+	catSysDiscovery:  "T1082",     // System Information Discovery
+	catProcDiscovery: "T1057",     // Process Discovery
+	catFileOps:       "T1070.004", // Indicator Removal: File Deletion
+	catCrypto:        "T1486",     // Data Encrypted for Impact
+	catCredAccess:    "T1003",     // OS Credential Dumping
+	catMemProtect:    "T1055",     // Process Injection (RWX staging)
+	catShellExec:     "T1059.003", // Windows Command Shell
+	catEncodedPS:     "T1027.010", // Obfuscated Files or Information: Command Obfuscation
+	catPSExec:        "T1059.001", // PowerShell
+	catScriptExec:    "T1059.005", // Visual Basic
+	catLOLBin:        "T1218",     // System Binary Proxy Execution
+	catLOLDownload:   "T1105",     // Ingress Tool Transfer
+	catShadowCopy:    "T1490",     // Inhibit System Recovery
+	catAcctDiscovery: "T1087",     // Account Discovery
+	catRansomNote:    "T1486",     // Data Encrypted for Impact
+	catRansomFamily:  "T1486",     // Data Encrypted for Impact
+	catVMDetect:      "T1497.001", // Virtualization/Sandbox Evasion: System Checks
+	catSandboxDetect: "T1497.001", // Virtualization/Sandbox Evasion: System Checks
+	catUnixShell:     "T1059.004", // Unix Shell
+	catDownloadTool:  "T1105",     // Ingress Tool Transfer
+}
+
+// CategoryTechnique returns the ATT&CK technique id a heuristic category is
+// evidence for, or "" when the category has no defensible mapping.
+func CategoryTechnique(category string) string {
+	return categoryTechniques[category]
+}
+
+// Categories lists every heuristic category with its ATT&CK technique, in a
+// stable order, for coverage reporting.
+func Categories() []CategoryScore {
+	out := make([]CategoryScore, 0, len(categoryCaps)+len(weakCategories))
+	seen := map[string]bool{}
+	add := func(cat string) {
+		if seen[cat] {
+			return
+		}
+		seen[cat] = true
+		cap, ok := categoryCaps[cat]
+		if !ok {
+			cap = defaultCategoryCap
+		}
+		out = append(out, CategoryScore{Category: cat, Cap: cap, Weak: weakCategories[cat], Technique: categoryTechniques[cat]})
+	}
+	for _, api := range suspiciousAPIs {
+		add(api.Category)
+	}
+	for _, sp := range suspiciousStrings {
+		add(sp.Category)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Category < out[j].Category })
+	return out
 }
 
 // suspiciousAPIs maps PE import names to a category and weight. Names must be
@@ -478,6 +554,7 @@ func ScanHeuristicsData(filePath string, data []byte, opts HeuristicOptions) Heu
 			Source:    "PE Import",
 			Score:     info.Score,
 			Hits:      1,
+			Technique: categoryTechniques[info.Category],
 		})
 	}
 
@@ -516,7 +593,7 @@ func scoreCategories(matches []HeuristicMatch) ([]CategoryScore, int) {
 		if !ok {
 			cap = defaultCategoryCap
 		}
-		cs := CategoryScore{Category: cat, Raw: raw[cat], Cap: cap, Weak: weakCategories[cat]}
+		cs := CategoryScore{Category: cat, Raw: raw[cat], Cap: cap, Weak: weakCategories[cat], Technique: categoryTechniques[cat]}
 		applied := raw[cat]
 		if applied > cap {
 			applied = cap
@@ -599,6 +676,7 @@ func scanStrings(data []byte) []HeuristicMatch {
 					Category:  sp.Category,
 					Source:    "String",
 					Score:     sp.Score,
+					Technique: categoryTechniques[sp.Category],
 				}
 				hits[i] = m
 				seenExample[i] = make(map[string]bool)

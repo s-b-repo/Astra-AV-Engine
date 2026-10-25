@@ -25,6 +25,9 @@ const (
 	DetectorHash      = "hash"
 	DetectorYara      = "yara"
 	DetectorHeuristic = "heuristic"
+	DetectorStatic    = "static"
+	DetectorStego     = "stego"
+	DetectorFusion    = "fusion"
 )
 
 // Signal is one reason a detector believes a sample is malicious. Signals are

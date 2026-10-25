@@ -1,2 +1,6 @@
+github.com/glaslos/ssdeep v1.0.0 h1:WsUwoekrlkTzi43/SBO1LXQIOQfkMc2lv4mPsBp3bd0=
+github.com/glaslos/ssdeep v1.0.0/go.mod h1:FFtDB/oyQPP8LaI8y0WIOa6LoAMQiIVG1YAqXxFJJio=
+github.com/glaslos/tlsh v0.4.0 h1:rWheIm8wSO8FqVGW3nrGaVvjXvLWRtF/HBIrih6TltE=
+github.com/glaslos/tlsh v0.4.0/go.mod h1:Fg7YBN7EUtifZmdJrQOQHvebtw5RF89IX7nWFsmaqeE=
 github.com/hillu/go-yara/v4 v4.3.3 h1:O+7iYTZK20fzsXiJyvA0d529RTdnZCrgS6HdE0O7BMg=
 github.com/hillu/go-yara/v4 v4.3.3/go.mod h1:AHEs/FXVMQKVVlT6iG9d+q1BRr0gq0WoAWZQaZ0gS7s=

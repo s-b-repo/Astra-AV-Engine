@@ -14,6 +14,8 @@ import (
 	"github.com/cau-edr/cau/internal/eval/scannerbridge"
 	"github.com/cau-edr/cau/internal/report"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 func evalUsage(w io.Writer) {
@@ -123,6 +125,12 @@ func evalRun(args []string, stdout, stderr io.Writer) int {
 	noYara := fs.Bool("no-yara", false, "disable the YARA detector")
 	noHeur := fs.Bool("no-heuristics", false, "disable the heuristic detector")
 	threshold := fs.Int("heuristic-threshold", scanner.HeuristicThreshold, "heuristic detection threshold")
+	noStatic := fs.Bool("no-static", false, "disable the static structural detector")
+	staticThreshold := fs.Int("static-threshold", static.Threshold, "static detection threshold")
+	fuzzyFlag := fs.String("fuzzy-db", "", "fuzzy signature database for the static detector (default: <manifest dir>/fuzzy.txt, else auto-discovered, else none)")
+	noStego := fs.Bool("no-stego", false, "disable the invisible-codepoint (stego) detector")
+	stegoThreshold := fs.Int("stego-threshold", stego.Threshold, "stego detection threshold")
+	noFusion := fs.Bool("no-fusion", false, "disable the fusion detector (corroboration of sub-threshold detectors)")
 	jobs := fs.Int("jobs", 0, "samples scanned concurrently (default: number of CPUs)")
 	onError := fs.String("on-error", string(eval.OnErrorExclude), "unscannable samples: exclude, miss (count as FN) or fail")
 	maxSize := fs.Int64("max-file-size", 0, "skip samples larger than this many bytes")
@@ -208,6 +216,46 @@ func evalRun(args []string, stdout, stderr io.Writer) int {
 		th = -1
 	}
 	detectors := scannerbridge.Engine(db, ys, th)
+	var fuzzy *static.FuzzyDB
+	if !*noStatic {
+		fuzzyPath := *fuzzyFlag
+		if fuzzyPath == "" {
+			if local := filepath.Join(m.Dir, "fuzzy.txt"); fileExists(local) {
+				fuzzyPath = local
+			} else {
+				fuzzyPath, _ = findResource("", envFuzzy, relFuzzy)
+			}
+		}
+		if fuzzyPath != "" {
+			if fuzzy, err = static.LoadFuzzyDB(fuzzyPath); err != nil {
+				return fail(stderr, report.ExitRunFailed, "%v", err)
+			}
+			if !*quiet {
+				fmt.Fprintf(stderr, "[*] static: %d fuzzy signatures from %s\n", fuzzy.Count(), fuzzyPath)
+			}
+		} else if !*quiet {
+			fmt.Fprintln(stderr, "[*] static: no fuzzy database, similarity lookups off")
+		}
+		detectors = append(detectors, scannerbridge.StaticDetector(*staticThreshold, fuzzy))
+	}
+	if !*noStego {
+		detectors = append(detectors, scannerbridge.StegoDetector(*stegoThreshold))
+	}
+	if !*noFusion {
+		// The fusion detector runs the same engine the CLI runs and reports
+		// only what corroboration adds.
+		detectors = append(detectors, scannerbridge.FusionDetector(&scanner.Engine{
+			DB:                 db,
+			Yara:               ys,
+			Heuristics:         !*noHeur,
+			HeuristicThreshold: *threshold,
+			Static:             !*noStatic,
+			StaticThreshold:    *staticThreshold,
+			FuzzyDB:            fuzzy,
+			Stego:              !*noStego,
+			StegoThreshold:     *stegoThreshold,
+		}))
+	}
 	if len(detectors) == 0 {
 		return fail(stderr, report.ExitUsage, "every detector is disabled")
 	}

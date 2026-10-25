@@ -42,6 +42,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // Branding defaults. main.go owns the canonical version string; these are the
@@ -74,6 +77,11 @@ const (
 	// does not import that identifier, because it is being promoted from const
 	// to var and may be retuned at runtime.
 	DefaultHeuristicThreshold = 3
+	// DefaultStaticThreshold mirrors static.DefaultThreshold. Callers pass
+	// WithStaticThreshold(static.Threshold) for the same reason as above.
+	DefaultStaticThreshold = static.DefaultThreshold
+	// DefaultStegoThreshold mirrors stego.DefaultThreshold.
+	DefaultStegoThreshold = stego.DefaultThreshold
 )
 
 // TruncationMarker is appended to any string that was cut short. Blob-shaped
@@ -167,6 +175,14 @@ func (in Input) ErrorCount() int {
 			n++
 		}
 	}
+	for _, r := range in.Results {
+		if r.Error == nil && r.Static != nil && r.Static.Error != nil {
+			n++
+		}
+		if r.Error == nil && r.Stego != nil && r.Stego.Error != nil {
+			n++
+		}
+	}
 	return n
 }
 
@@ -181,6 +197,14 @@ func (in Input) FileErrorCount() int {
 	}
 	for _, h := range in.Heuristics {
 		if h.Error != nil {
+			n++
+		}
+	}
+	for _, r := range in.Results {
+		if r.Error == nil && r.Static != nil && r.Static.Error != nil {
+			n++
+		}
+		if r.Error == nil && r.Stego != nil && r.Stego.Error != nil {
 			n++
 		}
 	}
@@ -285,6 +309,89 @@ func (in Input) HasHeuristicObservation() bool {
 	return false
 }
 
+// StaticBreach returns the scan results whose structural (static) score
+// reached its threshold. Same contract as HeuristicBreach: a result that
+// recorded its own threshold is judged against that, the parameter is the
+// fallback. Skipped and errored static results never breach.
+func (in Input) StaticBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if staticBreached(r.Static, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// staticThresholdFor returns the threshold that applies to one static result.
+func staticThresholdFor(s *static.Result, fallback int) int {
+	if s != nil && s.Threshold > 0 {
+		return s.Threshold
+	}
+	return fallback
+}
+
+// staticBreached is the single definition of "the static analysis fired"
+// used by every reporter and the exit policy.
+func staticBreached(s *static.Result, fallback int) bool {
+	return s != nil && s.Error == nil && s.Skipped == "" && s.Score >= staticThresholdFor(s, fallback)
+}
+
+// HasStaticObservation reports whether any file produced scored structural
+// evidence below the threshold, or a failed static pass — the static side of
+// the "not spotless" tier.
+func (in Input) HasStaticObservation() bool {
+	for _, r := range in.Results {
+		if r.Static != nil && (r.Static.Error != nil || r.Static.HasObservation()) {
+			return true
+		}
+	}
+	return false
+}
+
+// StegoBreach returns the scan results whose invisible-codepoint score
+// reached its threshold. Same contract as StaticBreach.
+func (in Input) StegoBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if stegoBreached(r.Stego, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func stegoThresholdFor(s *stego.Result, fallback int) int {
+	if s != nil && s.Threshold > 0 {
+		return s.Threshold
+	}
+	return fallback
+}
+
+// stegoBreached is the single definition of "the stego detector fired".
+func stegoBreached(s *stego.Result, fallback int) bool {
+	return s != nil && s.Error == nil && s.Skipped == "" && s.Score >= stegoThresholdFor(s, fallback)
+}
+
+// FusionCorroborated returns the scan results the fusion lattice reports as
+// suspicious although no single detector crossed its own threshold: the
+// detections fusion adds. A fused verdict that merely restates a detector's
+// own breach is not counted here, so the number is the lattice's own
+// contribution and nothing else.
+func (in Input) FusionCorroborated() []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if fusionCorroborated(r.Fusion) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func fusionCorroborated(v *fusion.Verdict) bool {
+	return v != nil && v.Tier == fusion.TierSuspicious && v.Corroborated
+}
+
 // StatFunc reports a file's size in bytes. Injecting it keeps the reporters
 // pure and the tests hermetic — no reporter test touches a real filesystem.
 type StatFunc func(path string) (int64, error)
@@ -308,6 +415,8 @@ type config struct {
 	maxPreviewBytes     int
 
 	heuristicThreshold int
+	staticThreshold    int
+	stegoThreshold     int
 	stat               StatFunc
 	now                func() time.Time
 
@@ -378,6 +487,14 @@ func WithMaxPreviewBytes(n int) Option { return func(c *config) { c.maxPreviewBy
 // only makes the report self-consistent ("score 7 / threshold 5").
 func WithHeuristicThreshold(n int) Option { return func(c *config) { c.heuristicThreshold = n } }
 
+// WithStaticThreshold records which threshold the static (structural) analysis
+// actually used, so the report can say "score 9 / threshold 8" truthfully.
+func WithStaticThreshold(n int) Option { return func(c *config) { c.staticThreshold = n } }
+
+// WithStegoThreshold records which threshold the invisible-codepoint detector
+// actually used.
+func WithStegoThreshold(n int) Option { return func(c *config) { c.stegoThreshold = n } }
+
 // WithStatFunc overrides how file sizes are resolved (os.Stat by default).
 func WithStatFunc(f StatFunc) Option { return func(c *config) { c.stat = f } }
 
@@ -435,6 +552,8 @@ func defaultConfig() config {
 		maxMessageRunes:     DefaultMaxMessageRunes,
 		maxPreviewBytes:     DefaultMaxPreviewBytes,
 		heuristicThreshold:  DefaultHeuristicThreshold,
+		staticThreshold:     DefaultStaticThreshold,
+		stegoThreshold:      DefaultStegoThreshold,
 		stat:                osFileSize,
 		now:                 time.Now,
 
@@ -476,6 +595,12 @@ func (c *config) normalize() {
 	}
 	if c.maxPreviewBytes < 0 {
 		c.maxPreviewBytes = DefaultMaxPreviewBytes
+	}
+	if c.staticThreshold <= 0 {
+		c.staticThreshold = DefaultStaticThreshold
+	}
+	if c.stegoThreshold <= 0 {
+		c.stegoThreshold = DefaultStegoThreshold
 	}
 	if c.stat == nil {
 		c.stat = osFileSize

@@ -1,14 +1,17 @@
 {
   "schema_version": "1",
   "run": {
-    "tool": "CAU EDR 0.4.0-dev",
-    "generated_at": "2026-10-24T21:48:31.965463375Z",
+    "tool": "CAU EDR 65b404e-dirty",
+    "generated_at": "2026-10-25T01:17:04.332847687Z",
     "corpus": "corpus/smoke/manifest.json",
     "corpus_name": "smoke",
     "corpus_root": "/home/kali/Documents/astrav2/corpus/smoke",
     "detectors": [
+      "fusion",
       "hash",
       "heuristic",
+      "static",
+      "stego",
       "yara"
     ],
     "concurrency": 12,
@@ -25,7 +28,19 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 735812
+      "duration_ns": 815902
+    },
+    {
+      "id": "benign-bom_script",
+      "path": "benign/bom_script.ps1",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/bom_script.ps1",
+      "expected": "clean",
+      "family": "clean",
+      "size": 22,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 191974
     },
     {
       "id": "benign-config.ini",
@@ -37,7 +52,19 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 74194
+      "duration_ns": 427581
+    },
+    {
+      "id": "benign-emoji_notes",
+      "path": "benign/emoji_notes.md",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/emoji_notes.md",
+      "expected": "clean",
+      "family": "clean",
+      "size": 77,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 533723
     },
     {
       "id": "benign-empty.bin",
@@ -48,7 +75,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 291321
+      "duration_ns": 458276
     },
     {
       "id": "benign-fetch.sh",
@@ -60,7 +87,43 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 160455
+      "duration_ns": 418482
+    },
+    {
+      "id": "benign-hindi_notes",
+      "path": "benign/hindi_notes.txt",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/hindi_notes.txt",
+      "expected": "clean",
+      "family": "clean",
+      "size": 72,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 183860
+    },
+    {
+      "id": "benign-persian_readme",
+      "path": "benign/persian_readme.md",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/persian_readme.md",
+      "expected": "clean",
+      "family": "clean",
+      "size": 74,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 703013
+    },
+    {
+      "id": "benign-utf16_notes",
+      "path": "benign/utf16_notes.txt",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/benign/utf16_notes.txt",
+      "expected": "clean",
+      "family": "clean",
+      "size": 48,
+      "detected": false,
+      "verdict": "CLEAN",
+      "scored": true,
+      "duration_ns": 165522
     },
     {
       "id": "mal-hash_only",
@@ -83,7 +146,7 @@
         "hash"
       ],
       "scored": true,
-      "duration_ns": 174731
+      "duration_ns": 565487
     },
     {
       "id": "mal-lokibot_strings",
@@ -106,7 +169,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 362749
+      "duration_ns": 825484
     },
     {
       "id": "mal-mimikatz_strings",
@@ -140,7 +203,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 716001
+      "duration_ns": 1097824
     },
     {
       "id": "mal-ransom_extensions",
@@ -163,7 +226,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 400418
+      "duration_ns": 977464
     },
     {
       "id": "mal-wannacry_strings",
@@ -186,13 +249,45 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 588401
+      "duration_ns": 690881
+    },
+    {
+      "id": "mal-zero_width_prose",
+      "path": "malicious/zero_width_prose.md",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/zero_width_prose.md",
+      "expected": "zero_width_stego",
+      "family": "zero_width_stego",
+      "size": 137,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "stego",
+          "rule": "stego/score",
+          "detail": "score 8/threshold 4; 16 scored, 0 excused, run 1"
+        },
+        {
+          "detector": "stego",
+          "rule": "stego/zero-width",
+          "detail": "16× U+200B ZERO WIDTH SPACE; first at line 3"
+        },
+        {
+          "detector": "stego",
+          "rule": "stego/ascii-carrier",
+          "detail": "16 of 16 scored codepoints sit between ASCII text (dead-drop carrier pattern)"
+        }
+      ],
+      "detectors": [
+        "stego"
+      ],
+      "scored": true,
+      "duration_ns": 739492
     }
   ],
   "totals": {
-    "tp": 5,
+    "tp": 6,
     "fp": 0,
-    "tn": 4,
+    "tn": 9,
     "fn": 0
   },
   "metrics": {
@@ -205,20 +300,39 @@
   },
   "by_detector": [
     {
+      "detector": "fusion",
+      "counts": {
+        "tp": 0,
+        "fp": 0,
+        "tn": 9,
+        "fn": 6
+      },
+      "metrics": {
+        "precision": null,
+        "recall": 0,
+        "f1": null,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.6
+      },
+      "fires": 0,
+      "exclusive_hits": 0
+    },
+    {
       "detector": "hash",
       "counts": {
         "tp": 1,
         "fp": 0,
-        "tn": 4,
-        "fn": 4
+        "tn": 9,
+        "fn": 5
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.2,
-        "f1": 0.33333333333333337,
+        "recall": 0.16666666666666666,
+        "f1": 0.2857142857142857,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.5555555555555556
+        "accuracy": 0.6666666666666666
       },
       "fires": 1,
       "exclusive_hits": 1
@@ -228,35 +342,73 @@
       "counts": {
         "tp": 1,
         "fp": 0,
-        "tn": 4,
-        "fn": 4
+        "tn": 9,
+        "fn": 5
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.2,
-        "f1": 0.33333333333333337,
+        "recall": 0.16666666666666666,
+        "f1": 0.2857142857142857,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.5555555555555556
+        "accuracy": 0.6666666666666666
       },
       "fires": 1,
       "exclusive_hits": 0
+    },
+    {
+      "detector": "static",
+      "counts": {
+        "tp": 0,
+        "fp": 0,
+        "tn": 9,
+        "fn": 6
+      },
+      "metrics": {
+        "precision": null,
+        "recall": 0,
+        "f1": null,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.6
+      },
+      "fires": 0,
+      "exclusive_hits": 0
+    },
+    {
+      "detector": "stego",
+      "counts": {
+        "tp": 1,
+        "fp": 0,
+        "tn": 9,
+        "fn": 5
+      },
+      "metrics": {
+        "precision": 1,
+        "recall": 0.16666666666666666,
+        "f1": 0.2857142857142857,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.6666666666666666
+      },
+      "fires": 1,
+      "exclusive_hits": 1
     },
     {
       "detector": "yara",
       "counts": {
         "tp": 4,
         "fp": 0,
-        "tn": 4,
-        "fn": 1
+        "tn": 9,
+        "fn": 2
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.8,
-        "f1": 0.888888888888889,
+        "recall": 0.6666666666666666,
+        "f1": 0.8,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.8888888888888888
+        "accuracy": 0.8666666666666667
       },
       "fires": 4,
       "exclusive_hits": 3
@@ -297,6 +449,14 @@
     },
     {
       "family": "wannacry",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "zero_width_stego",
       "samples": 1,
       "detected": 1,
       "missed": 0,
@@ -372,6 +532,33 @@
       "false_positives": 0
     },
     {
+      "rule": "stego/ascii-carrier",
+      "detectors": [
+        "stego"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "stego/score",
+      "detectors": [
+        "stego"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "stego/zero-width",
+      "detectors": [
+        "stego"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
       "rule": "wannacry_ransomware",
       "detectors": [
         "yara"
@@ -389,39 +576,39 @@
   "errors": [],
   "skipped": [],
   "perf": {
-    "samples": 9,
-    "total_duration_ns": 3504082,
-    "mean_duration_ns": 389342,
-    "p50_ns": 362749,
-    "p95_ns": 735812,
-    "max_duration_ns": 735812,
-    "bytes_scanned": 935,
-    "throughput_bytes_per_s": 266831.6551952837,
+    "samples": 15,
+    "total_duration_ns": 8794965,
+    "mean_duration_ns": 586331,
+    "p50_ns": 565487,
+    "p95_ns": 1097824,
+    "max_duration_ns": 1097824,
+    "bytes_scanned": 1365,
+    "throughput_bytes_per_s": 155202.43684881064,
     "slowest": [
-      {
-        "key": "benign-README.txt",
-        "path": "benign/README.txt",
-        "duration_ns": 735812
-      },
       {
         "key": "mal-mimikatz_strings",
         "path": "malicious/mimikatz_strings.bin",
-        "duration_ns": 716001
-      },
-      {
-        "key": "mal-wannacry_strings",
-        "path": "malicious/wannacry_strings.bin",
-        "duration_ns": 588401
+        "duration_ns": 1097824
       },
       {
         "key": "mal-ransom_extensions",
         "path": "malicious/ransom_extensions.bin",
-        "duration_ns": 400418
+        "duration_ns": 977464
       },
       {
         "key": "mal-lokibot_strings",
         "path": "malicious/lokibot_strings.bin",
-        "duration_ns": 362749
+        "duration_ns": 825484
+      },
+      {
+        "key": "benign-README.txt",
+        "path": "benign/README.txt",
+        "duration_ns": 815902
+      },
+      {
+        "key": "mal-zero_width_prose",
+        "path": "malicious/zero_width_prose.md",
+        "duration_ns": 739492
       }
     ]
   }

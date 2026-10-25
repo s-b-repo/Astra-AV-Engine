@@ -150,3 +150,85 @@ func TestResourceDiscovery(t *testing.T) {
 		t.Fatal("tests must run from the repository root")
 	}
 }
+
+func TestCLIStaticCommands(t *testing.T) {
+	dir := t.TempDir()
+	sample := filepath.Join(dir, "sample.bin")
+	data := make([]byte, 20000)
+	for i := range data {
+		data[i] = byte(i*31 + i/7)
+	}
+	if err := os.WriteFile(sample, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fuzzy := filepath.Join(dir, "fuzzy.txt")
+
+	cases := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"hash no args", []string{"hash"}, report.ExitUsage},
+		{"hash bad format", []string{"hash", "--format", "yaml", sample}, report.ExitUsage},
+		{"hash ok", []string{"hash", sample}, report.ExitOK},
+		{"hash json", []string{"hash", "--format", "json", sample}, report.ExitOK},
+		{"hash missing", []string{"hash", "/no/such/file"}, report.ExitScanFailed},
+		{"add-fuzzy no name", []string{"add-fuzzy", "--db", fuzzy, "--file", sample}, report.ExitUsage},
+		{"add-fuzzy file", []string{"add-fuzzy", "--db", fuzzy, "--file", sample, "--name", "Synthetic Family"}, report.ExitOK},
+		{"add-fuzzy duplicate", []string{"add-fuzzy", "--db", fuzzy, "--file", sample, "--name", "Synthetic Family"}, report.ExitRunFailed},
+		{"add-fuzzy bad digest", []string{"add-fuzzy", "--db", fuzzy, "--type", "TLSH", "--hash", "nope", "--name", "x"}, report.ExitRunFailed},
+		{"add-fuzzy missing file", []string{"add-fuzzy", "--db", fuzzy, "--file", "/no/such", "--name", "x"}, report.ExitRunFailed},
+		{"cluster no args", []string{"cluster"}, report.ExitUsage},
+		{"cluster bad sim", []string{"cluster", "--min-similarity", "2", dir}, report.ExitUsage},
+		{"cluster dir", []string{"cluster", dir}, report.ExitOK},
+		{"cluster json", []string{"cluster", "--format", "json", "--imphashes", dir}, report.ExitOK},
+		{"cluster missing", []string{"cluster", "/no/such/dir"}, report.ExitRunFailed},
+		{"scan bad static threshold", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--static-threshold", "0", "LICENSE"}, report.ExitUsage},
+		{"scan bad fuzzy db", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--fuzzy-db", "/no/fuzzy.txt", "LICENSE"}, report.ExitRunFailed},
+		{"scan no static", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--no-static", "LICENSE"}, report.ExitOK},
+		// The sample is in the fuzzy db now: a similarity hit is the heuristic tier.
+		{"scan fuzzy hit malicious", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--fuzzy-db", fuzzy, sample}, report.ExitOK},
+		{"scan fuzzy hit heuristic", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--fuzzy-db", fuzzy, "--fail-on", "heuristic", sample}, report.ExitThreat},
+		{"scan fuzzy hit no-fuzzy", []string{"scan", "--quiet", "--db", smokeDB, "--no-yara", "--fuzzy-db", fuzzy, "--no-fuzzy", "--fail-on", "heuristic", sample}, report.ExitOK},
+		{"eval run static", []string{"eval", "run", "--corpus", smokeManifest, "--rules", "rules", "--quiet"}, report.ExitOK},
+		{"eval run no static", []string{"eval", "run", "--corpus", smokeManifest, "--rules", "rules", "--no-static", "--quiet"}, report.ExitOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out, errOut := runCLI(t, tc.args...)
+			if code != tc.want {
+				t.Errorf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, tc.want, out, errOut)
+			}
+		})
+	}
+
+	// hash output carries every digest.
+	_, out, _ := runCLI(t, "hash", "--format", "json", sample)
+	var recs []map[string]any
+	if err := json.Unmarshal([]byte(out), &recs); err != nil || len(recs) != 1 {
+		t.Fatalf("hash json: %v\n%s", err, out)
+	}
+	for _, k := range []string{"sha256", "tlsh", "ssdeep"} {
+		if s, _ := recs[0][k].(string); s == "" {
+			t.Errorf("hash json missing %s: %v", k, recs[0])
+		}
+	}
+
+	// scan JSON carries the static object and the similarity match.
+	_, out, _ = runCLI(t, "scan", "--quiet", "--format", "json", "--db", smokeDB, "--no-yara", "--fuzzy-db", fuzzy, sample)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("scan json: %v\n%s", err, out)
+	}
+	if doc["schema_version"] != report.JSONSchemaVersion {
+		t.Errorf("schema = %v", doc["schema_version"])
+	}
+	files := doc["files"].([]any)
+	st, _ := files[0].(map[string]any)["static"].(map[string]any)
+	if st == nil || st["detected"] != true || st["fuzzy_matches"] == nil {
+		t.Errorf("static object = %v", st)
+	}
+	if doc["summary"].(map[string]any)["static_detections"] != float64(1) {
+		t.Errorf("summary = %v", doc["summary"])
+	}
+}

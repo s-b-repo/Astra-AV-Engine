@@ -27,10 +27,10 @@ const textGolden = ` [!] DETECTED (Hash) — samples/wannacry.exe
      Verdict   : SUSPICIOUS
      Score     : 7 / 3 threshold
 
-     [Process Injection]
+     [Process Injection]  (T1055)
        [PE Import]    WriteProcessMemory
        [PE Import]    CreateRemoteThread
-     [Shell Execution]
+     [Shell Execution]  (T1059.003)
        [String]       cmd.exe /c whoami
 
  [CLEAN] samples/notepad.exe
@@ -42,6 +42,9 @@ const textGolden = ` [!] DETECTED (Hash) — samples/wannacry.exe
  Hash detections       : 1
  YARA detections       : 1
  Heuristic detections  : 1
+ Static detections     : 0
+ Stego detections      : 0
+ Fused-only detections : 0
  Errors                : 0
  Exit code             : 1 (exit 1: 1 file(s) matched a hash signature or YARA rule)
 ------------------------------------------------------------

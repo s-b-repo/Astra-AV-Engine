@@ -10,9 +10,11 @@ import (
 //
 //	none       never fail on findings (errors still fail, see below)
 //	malicious  fail on a hash-signature hit or a YARA match          (default)
-//	heuristic  ... or on a heuristic score at or above the threshold
-//	clean      ... or on any heuristic observation at all, i.e. the run must
-//	           be spotless
+//	heuristic  ... or on a heuristic, static (structural) or stego
+//	           (invisible-codepoint) score at or above its threshold, or on
+//	           a fused verdict that sub-threshold sources corroborated
+//	clean      ... or on any heuristic or static observation at all, i.e.
+//	           the run must be spotless
 //
 // The level is a string so that it round-trips through flags and config files
 // unchanged; the zero value ("") normalises to FailOnMalicious.
@@ -134,10 +136,30 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 
 	malicious := len(in.Malicious())
 	breaches := len(in.HeuristicBreach(c.heuristicThreshold))
+	static := len(in.StaticBreach(c.staticThreshold))
+	stego := len(in.StegoBreach(c.stegoThreshold))
+	fused := len(in.FusionCorroborated())
+
+	// suspicious is the shared tail of the heuristic and clean levels: the
+	// SUSPICIOUS-tier detectors in a fixed order, so the explanation names the
+	// first one that fired.
+	suspicious := func() (int, string) {
+		switch {
+		case breaches > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the heuristic threshold %d", ExitThreat, breaches, c.heuristicThreshold)
+		case static > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the static (structural) threshold %d", ExitThreat, static, c.staticThreshold)
+		case stego > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the stego (invisible-codepoint) threshold %d", ExitThreat, stego, c.stegoThreshold)
+		case fused > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) were corroborated suspicious by the fusion of sub-threshold detectors", ExitThreat, fused)
+		}
+		return ExitOK, ""
+	}
 
 	switch c.failOn {
 	case FailOnNone:
-		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es))", ExitOK, malicious, breaches)
+		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es), %d static breach(es), %d stego breach(es), %d fused)", ExitOK, malicious, breaches, static, stego, fused)
 
 	case FailOnMalicious:
 		if malicious > 0 {
@@ -149,20 +171,23 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 		if malicious > 0 {
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) matched a hash signature or YARA rule", ExitThreat, malicious)
 		}
-		if breaches > 0 {
-			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the heuristic threshold %d", ExitThreat, breaches, c.heuristicThreshold)
+		if code, why := suspicious(); code != ExitOK {
+			return code, why
 		}
-		return ExitOK, fmt.Sprintf("exit %d: no detections and no heuristic breach (fail-on=heuristic)", ExitOK)
+		return ExitOK, fmt.Sprintf("exit %d: no detections and no heuristic, static, stego or fused breach (fail-on=heuristic)", ExitOK)
 
 	case FailOnClean:
 		if malicious > 0 {
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) matched a hash signature or YARA rule", ExitThreat, malicious)
 		}
-		if breaches > 0 {
-			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the heuristic threshold %d", ExitThreat, breaches, c.heuristicThreshold)
+		if code, why := suspicious(); code != ExitOK {
+			return code, why
 		}
 		if in.HasHeuristicObservation() {
 			return ExitThreat, fmt.Sprintf("exit %d: heuristic evidence below the threshold was observed (fail-on=clean requires a spotless run)", ExitThreat)
+		}
+		if in.HasStaticObservation() {
+			return ExitThreat, fmt.Sprintf("exit %d: structural evidence below the threshold was observed (fail-on=clean requires a spotless run)", ExitThreat)
 		}
 		return ExitOK, fmt.Sprintf("exit %d: run is spotless (fail-on=clean)", ExitOK)
 	}

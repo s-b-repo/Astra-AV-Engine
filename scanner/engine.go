@@ -8,6 +8,9 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // DefaultMaxInMemory is the largest file the engine reads into memory once and
@@ -41,6 +44,28 @@ type Engine struct {
 	// FollowSymlinks makes ScanDirectory scan the targets of symbolic links to
 	// regular files. Symlinks to directories are never followed (loop risk).
 	FollowSymlinks bool
+
+	// Static enables the structural analysis layer (entropy, fuzzy hashes, PE
+	// anatomy and anomalies). Its result rides on ScanResult.Static.
+	Static bool
+	// StaticThreshold overrides static.Threshold (0 = package default).
+	StaticThreshold int
+	// FuzzyDB enables TLSH / ssdeep / imphash similarity lookups during the
+	// static pass. nil disables them; the digests are still computed.
+	FuzzyDB *static.FuzzyDB
+	// StaticNoFuzzy skips TLSH/ssdeep computation, the most expensive part of
+	// the static pass on large inputs.
+	StaticNoFuzzy bool
+
+	// Stego enables the invisible-codepoint detector for text and code
+	// artifacts. Its result rides on ScanResult.Stego.
+	Stego bool
+	// StegoThreshold overrides stego.Threshold (0 = package default).
+	StegoThreshold int
+
+	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
+	// it costs nothing: it is a view over results already computed.
+	NoFusion bool
 }
 
 func (e *Engine) maxInMemory() int64 {
@@ -65,6 +90,20 @@ func (e *Engine) threshold() int {
 		return e.HeuristicThreshold
 	}
 	return HeuristicThreshold
+}
+
+func (e *Engine) staticThreshold() int {
+	if e.StaticThreshold > 0 {
+		return e.StaticThreshold
+	}
+	return static.Threshold
+}
+
+func (e *Engine) stegoThreshold() int {
+	if e.StegoThreshold > 0 {
+		return e.StegoThreshold
+	}
+	return stego.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -158,6 +197,47 @@ func (e *Engine) ScanFile(path string) (ScanResult, *HeuristicResult) {
 			}
 		}
 		h = &hr
+	}
+
+	// ── static / structural ────────────────────────────
+	if e.Static {
+		if data != nil {
+			res.Static = static.Analyze(data, static.Options{
+				Threshold: e.staticThreshold(),
+				FuzzyDB:   e.FuzzyDB,
+				NoFuzzy:   e.StaticNoFuzzy,
+			})
+			res.Static.FilePath = path
+		} else {
+			res.Static = &static.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.staticThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── stego / invisible codepoints ───────────────────
+	if e.Stego {
+		if data != nil {
+			res.Stego = stego.Scan(data, stego.Options{Threshold: e.stegoThreshold()})
+			res.Stego.FilePath = path
+		} else {
+			res.Stego = &stego.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.stegoThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── fusion ─────────────────────────────────────────
+	if !e.NoFusion {
+		res.Fusion = e.fuse(&res, h)
 	}
 
 	res.ScanTime = time.Since(start)

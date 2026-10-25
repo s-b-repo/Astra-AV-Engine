@@ -1,6 +1,8 @@
 // Command cau is the CAU EDR command line: a transparent, open-source malware
-// detection engine (hash signatures, YARA, string/API heuristics) with
-// machine-readable output, CI exit codes and a measured evaluation harness.
+// detection engine (hash signatures, YARA, string/API heuristics, static
+// structure, invisible-codepoint steganography, and a fusion lattice over all
+// of them) with machine-readable output, CI exit codes and a measured
+// evaluation harness.
 package main
 
 import (
@@ -14,6 +16,8 @@ import (
 
 	"github.com/cau-edr/cau/internal/report"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // version is overridden at build time: -ldflags "-X main.version=v1.2.3".
@@ -33,24 +37,36 @@ func usage(w io.Writer) {
 %s
 
 Usage:
-  cau scan     [flags] [path ...]      scan files and directories
-  cau add-hash [flags]                 append a hash signature to the database
-  cau eval     <subcommand> [flags]    corpus evaluation harness (see "cau eval help")
+  cau scan      [flags] [path ...]     scan files and directories
+  cau hash      [flags] <path ...>     print SHA-256, imphash, TLSH and ssdeep digests
+  cau cluster   [flags] <path ...>     group PE files by import-table similarity
+  cau add-hash  [flags]                append a hash signature to the database
+  cau add-fuzzy [flags]                append a TLSH / ssdeep / imphash signature
+  cau eval      <subcommand> [flags]   corpus evaluation harness (see "cau eval help")
   cau version                          print the version
 
 Scan examples:
   cau scan --file suspicious.exe
   cau scan --dir ./samples --format sarif --output cau.sarif
   cau scan ./build --format json --fail-on heuristic
-  cau scan --dir / --jobs 16 --no-heuristics --quiet
+  cau scan --dir / --jobs 16 --no-heuristics --no-static --quiet
+
+Detectors: hash signatures, YARA, string/API heuristics, the static
+structural pass (entropy, packer, section/entry-point/signature anomalies,
+TLSH/ssdeep/imphash similarity) and the stego pass (zero-width and other
+invisible codepoints in text and code). Heuristic, static and stego breaches
+are the SUSPICIOUS tier; hash and YARA hits are MALICIOUS. The fusion lattice
+joins every detector's evidence: sub-threshold sources that corroborate each
+other are reported SUSPICIOUS with the sources that agreed named.
 
 Exit codes (scan): 0 clean, 1 findings at or above --fail-on, 2 some files
 could not be scanned, 3 the run itself failed, 4 usage error.
 
-Resources: the signature database and the YARA rules are found automatically
-(next to the binary, <prefix>/share/cau, /usr/share/cau, or the working
-directory); override with --db / --rules or %s / %s.
-`, toolName, version, toolTagline, envSignatures, envRules)
+Resources: the signature database, the YARA rules and the fuzzy database are
+found automatically (next to the binary, <prefix>/share/cau, /usr/share/cau,
+or the working directory); override with --db / --rules / --fuzzy-db or
+%s / %s / %s.
+`, toolName, version, toolTagline, envSignatures, envRules, envFuzzy)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -63,6 +79,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdScan(args[1:], stdout, stderr)
 	case "add-hash":
 		return cmdAddHash(args[1:], stdout, stderr)
+	case "add-fuzzy":
+		return cmdAddFuzzy(args[1:], stdout, stderr)
+	case "hash":
+		return cmdHash(args[1:], stdout, stderr)
+	case "cluster":
+		return cmdCluster(args[1:], stdout, stderr)
 	case "eval":
 		return cmdEval(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
@@ -84,7 +106,12 @@ type scanFlags struct {
 	file, dir         string
 	db, rules         string
 	noYara, noHeur    bool
+	noStatic, noFuzzy bool
+	noStego, noFusion bool
+	fuzzyDB           string
 	heurThreshold     int
+	staticThreshold   int
+	stegoThreshold    int
 	format, output    string
 	pretty            bool
 	failOn            string
@@ -107,6 +134,13 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&f.noYara, "no-yara", false, "disable YARA scanning")
 	fs.BoolVar(&f.noHeur, "no-heuristics", false, "disable string & API heuristics")
 	fs.IntVar(&f.heurThreshold, "heuristic-threshold", scanner.HeuristicThreshold, "heuristic score at which a file is reported suspicious")
+	fs.BoolVar(&f.noStatic, "no-static", false, "disable the static structural analysis (entropy, packer, PE anomalies, similarity)")
+	fs.IntVar(&f.staticThreshold, "static-threshold", static.Threshold, "static anomaly score at which a file is reported suspicious")
+	fs.StringVar(&f.fuzzyDB, "fuzzy-db", "", "fuzzy signature database (TLSH/ssdeep/imphash; default: auto-discovered, optional)")
+	fs.BoolVar(&f.noFuzzy, "no-fuzzy", false, "skip TLSH/ssdeep computation (faster on large files; disables similarity lookups)")
+	fs.BoolVar(&f.noStego, "no-stego", false, "disable the invisible-codepoint (stego) pass over text and code artifacts")
+	fs.IntVar(&f.stegoThreshold, "stego-threshold", stego.Threshold, "stego score at which a text artifact is reported suspicious (default is presence-based)")
+	fs.BoolVar(&f.noFusion, "no-fusion", false, "disable the fusion lattice (corroboration of sub-threshold detectors)")
 	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
 	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
 	fs.BoolVar(&f.pretty, "pretty", false, "indent JSON/SARIF output")
@@ -144,6 +178,14 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "[ERROR] --heuristic-threshold must be at least 1")
 		return report.ExitUsage
 	}
+	if f.staticThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --static-threshold must be at least 1")
+		return report.ExitUsage
+	}
+	if f.stegoThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --stego-threshold must be at least 1")
+		return report.ExitUsage
+	}
 
 	opts := []report.Option{
 		report.WithToolName(toolName),
@@ -151,6 +193,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		report.WithFailOn(level),
 		report.WithFailOnScanError(!f.noFailOnScanError),
 		report.WithHeuristicThreshold(f.heurThreshold),
+		report.WithStaticThreshold(f.staticThreshold),
+		report.WithStegoThreshold(f.stegoThreshold),
 		report.WithIndent(f.pretty),
 	}
 	if f.dir != "" && len(targets) == 1 {
@@ -247,11 +291,53 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		status("[*] Heuristics enabled (threshold %d)", f.heurThreshold)
 	}
 
+	var fuzzy *static.FuzzyDB
+	switch {
+	case f.noStatic:
+		status("[*] Static analysis disabled")
+	default:
+		fuzzyPath, searched := findResource(f.fuzzyDB, envFuzzy, relFuzzy)
+		switch {
+		case fuzzyPath == "" && f.fuzzyDB == "":
+			status("[*] Static analysis enabled (threshold %d); no fuzzy database found, similarity lookups off (searched: %s)",
+				f.staticThreshold, strings.Join(searched, ", "))
+		case fuzzyPath == "":
+			return finish(report.Input{RunError: fmt.Errorf("fuzzy database not found at %s", f.fuzzyDB)})
+		case f.noFuzzy:
+			status("[*] Static analysis enabled (threshold %d); --no-fuzzy set, similarity lookups off", f.staticThreshold)
+		default:
+			fuzzy, err = static.LoadFuzzyDB(fuzzyPath)
+			if err != nil {
+				return finish(report.Input{RunError: err})
+			}
+			for _, w := range fuzzy.Warnings() {
+				status("[WARN] %s", w)
+			}
+			status("[*] Static analysis enabled (threshold %d); %d fuzzy signatures from %s", f.staticThreshold, fuzzy.Count(), fuzzyPath)
+		}
+	}
+
+	if f.noStego {
+		status("[*] Stego pass disabled")
+	} else {
+		status("[*] Stego pass enabled (threshold %d)", f.stegoThreshold)
+	}
+	if f.noFusion {
+		status("[*] Fusion disabled")
+	}
+
 	engine := &scanner.Engine{
 		DB:                 db,
 		Yara:               ys,
 		Heuristics:         !f.noHeur,
 		HeuristicThreshold: f.heurThreshold,
+		Static:             !f.noStatic,
+		StaticThreshold:    f.staticThreshold,
+		FuzzyDB:            fuzzy,
+		StaticNoFuzzy:      f.noFuzzy,
+		Stego:              !f.noStego,
+		StegoThreshold:     f.stegoThreshold,
+		NoFusion:           f.noFusion,
 		MaxInMemory:        f.maxInMemoryMiB << 20,
 		Jobs:               f.jobs,
 		FollowSymlinks:     f.followSymlinks,
@@ -288,7 +374,7 @@ func printBanner(w io.Writer) {
 	fmt.Fprintln(w, strings.Repeat("=", 60))
 	fmt.Fprintf(w, " %s %s\n", toolName, version)
 	fmt.Fprintf(w, " %s\n", toolTagline)
-	fmt.Fprintln(w, " Detection: Hash Signatures + YARA Rules + Heuristics")
+	fmt.Fprintln(w, " Detection: Hash + YARA + Heuristics + Static Structure + Stego, fused")
 	fmt.Fprintln(w, strings.Repeat("=", 60))
 	fmt.Fprintln(w)
 }

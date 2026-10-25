@@ -121,16 +121,91 @@ benign set built from Debian/Chocolatey package provenance.
 
 ---
 
-## Phase 2 — Episodes 4/5/6, done properly
+## Phase 2 — Episodes 4/5/6, done properly — DONE 2026-10-25
 
-All cheap. All measurable against Phase 1.
+All cheap. All measurable against Phase 1. Each row below lands with ATT&CK mapping,
+a model card bearing FP/FN against the eval corpus, and a benchstat entry under
+`cau bench` so the perf-sweep contract applies the day the feature ships, not after.
 
-- [ ] imphash + import clustering (nearest-neighbour family grouping from flat hashes)
-- [ ] TLSH + ssdeep fuzzy hashing (Episode 6) — survives the trivial single-byte flip
-- [ ] Shannon entropy overall + per section + sliding window; packer/overlay detection
-- [ ] Rich header, timestamp-vs-Rich anomaly, Authenticode chain + signer implausibility
-- [ ] Section anomalies: rwx, name mismatch, size/entropy outliers, TLS callbacks
-- [ ] Packer detection (UPX, Themida, VMProtect) via entrypoint + section signatures
+Shipped as `scanner/static` (own bounds-checked PE parser — `debug/pe` drops ordinal
+imports, which breaks imphash), surfaced as `ScanResult.Static`, the `static` eval
+detector, JSON schema 1.1.0, a SARIF `static/score` rule, and `cau hash` / `cau
+cluster` / `cau add-fuzzy`. Notes on what was actually measured:
+
+- Weights and the threshold (8) were tuned on the 49 PE files in Kali's
+  `/usr/share/windows-resources`: 43 score 0; the UPX-packed GNU `wget.exe` scores 7
+  (`packer.upx` + RWX + high-entropy section) and the ASPack-packed `klogger.exe` 6 —
+  both render as *low suspicion* with the packer named, because packed is not
+  malicious and the plan says so; credential tools (mimikatz, wce, PwDump) score 0
+  here by design, that is the heuristic detector's job. A synthetic UPX stub with a
+  loader-only import table scores ≥ 9 and a self-signed certificate wearing a vendor
+  name crosses on its own.
+- Three real Authenticode chains parse (plink, dbghelp.dll, mimidrv.sys). Two are
+  cross-signed and end at an external root, which the result names
+  (`chain_terminus`); `verified` is always false because the engine holds no trust
+  store, and every report says so. Go refuses SHA-1 chain verification, so
+  issuer-name linking is the documented fallback for pre-2016 chains.
+- Delphi's constant 1992 link timestamp, kernel drivers' RWX `INIT` section,
+  MinGW's `msvcrt.dll` and reproducible-build timestamps are all explicit non-findings
+  — each one was a false positive on the first measurement pass.
+- Imphash follows pefile's algorithm including its ws2_32/wsock32/oleaut32 ordinal
+  tables. TLSH/ssdeep thresholds are published constants (≤ 30 / ≥ 70); a match lands
+  in the SUSPICIOUS tier with its distance attached. The fuzzy database ships empty;
+  content arrives through the Phase 4 intake, never hand-typed.
+- Import clustering (exact imphash + 64-slot MinHash with 16×4 LSH bands) groups every
+  x86/x64 pair of the same tool in the fixture set at ≥ 0.6 Jaccard.
+- Perf: 44 MB/s with fuzzy hashing on a 1.3 MB binary, 180 MB/s without; the eval gate
+  stays green with the new detector present (baseline re-recorded).
+- Deferred, with owners: the emulation sidecar and the bounded peeler stay in
+  Phase 10 (NOVEL-012); lolcerts intake for signer implausibility is Phase 4.
+
+- [x] imphash + import clustering (nearest-neighbour family grouping from flat hashes).
+  Clustering uses locality-sensitive hashing on import strings; cluster size and
+  cluster-prevalence per fleet (Phase 7 #5) become FP suppressors — a cluster of 2 on
+  10k hosts is a very different signal from a cluster of 10k. Clusters carry stable
+  IDs across releases so analyst dispositions (verdict feedback ledger) persist.
+- [x] TLSH + ssdeep fuzzy hashing (Episode 6) — survives the trivial single-byte flip.
+  Thresholds published per corpus class with measured FP; a nearest-neighbour verdict
+  always carries the distance and the matched sample's own class, never only a boolean.
+  Fuzzy-match verdicts enter the fusion lattice (detection-quality program) rather than
+  firing standalone.
+- [x] Shannon entropy overall + per section + sliding window; packer/overlay detection.
+  Entropy segments are inputs to the chain-depth estimator (NOVEL-012 peeler), so the
+  work pays twice. Entropy is never a verdict alone — it is one input to fusion, and
+  the row's model card carries the FP curve against the benign corpus.
+- [x] Rich header, timestamp-vs-Rich anomaly, Authenticode chain + signer implausibility.
+  Signer-implausibility pairs with the lolcerts intake (abused code-signing certs) and
+  the trust-store drift row — the one signal that benefits from three independent data
+  sources landing in the same model.
+- [x] Section anomalies: rwx, name mismatch, size/entropy outliers, TLS callbacks.
+  Each class is a labeled sub-row; the renderer explains *which* anomaly fired, not a
+  single opaque score. ATT&CK mapping lands on each (T1027.009 for RWX stagers,
+  T1055 adjacent for TLS-callback injection patterns).
+- [x] Packer detection (UPX, Themida, VMProtect) via entrypoint + section signatures.
+  Packer identity drives the peeler's handler choice (NOVEL-012) rather than being a
+  verdict in itself — a signed, Debian-shipped UPX binary is not malicious; it is
+  packed, correctly, by provenance. Peel-exhausted packed samples route to the Phase 5
+  emulation sidecar before any clean verdict is emitted.
+- [x] Resource/overlay anomalies: appended-data detection past declared image end,
+  oversized resource sections, resource-language mismatches (installer claiming
+  en-US with Cyrillic strings), icon-hash lookups against known-good families — a
+  pattern that catches the "legit installer wrapper with payload tail" class.
+- [x] Delay-import and bound-import plane: delay-load table anomalies and
+  bound-import timestamp mismatches, both historically neglected because the fields
+  are rarely parsed by free-tier scanners.
+- [x] Debug-directory and PDB-path leakage: PDB-path extraction (build-host fingerprint,
+  developer-handle inference) renders as metadata only — a signal useful for clustering
+  and threat-intel pivots, never as a verdict. The row documents the privacy posture
+  loudly: PDB paths are *attacker-controlled strings* under the analytic-design rule and
+  cannot anchor a detection.
+- [x] Format-coverage honesty: the PE pass runs today; ELF (Phase 9), Mach-O (Phase 9
+  decision), OLE/PDF/LNK/CHM/ISO (Phase 9), script formats (install-plane shscanner) and
+  firmware images (Phase 8) each get their *own* phase-2-equivalent surface — overall
+  format coverage is published in `cau coverage` as a format matrix beside the ATT&CK
+  matrix, so the plan does not accidentally imply "PE-only" is "complete".
+- [x] Perf contract: single-pass PE access, mmap-backed parsing, per-worker memory
+  budgets enforced by the Phase 1 gates; benchstat baseline published on the first
+  release that includes the row.
 
 ---
 
@@ -180,7 +255,11 @@ score, which offset), `yara_test_rule` (against corpus, returns FP/FN), `generat
 - [ ] Content test-before-promote: every rule change runs against Phase 1 corpus with
       measured regression, blocks merge on FP regression
 - [ ] ATT&CK mapping on rules + a coverage matrix that reports techniques with **no**
-      rule. This is the honest counterfactual to what CrowdStrike sells.
+      rule. This is the honest counterfactual to what CrowdStrike sells. Partial: static
+      anomaly classes and (since 2026-10-25) every heuristic category carry a technique
+      id, exposed through `scanner.CategoryTechnique` / `scanner.Categories`; YARA rules
+      may declare `mitre_attack` meta and fusion reads it. The rule linter, the matrix
+      and `cau coverage` are still open.
 - [ ] Bind EU alternatives to the matrix so mapping never hinges on a single US registry:
       Unified Kill Chain (Fox-IT / P. Pols, NL) mapped phase-wise alongside ATT&CK as the
       sequencing view, MISP galaxy-cluster IDs (CIRCL, Luxembourg) for actor/family
@@ -477,9 +556,25 @@ catch and how to catch it, not how to build it. This Phase 4-connected work maps
 | NOVEL-012 | Multi-method obfuscation chaining in binaries (encoding→packing→encryption stacks, depth as a signal) | chain-depth estimator + bounded peeling pipeline + peel-exhausted honest states; runtime unpack taps as the sensor-side complement | T1027 family (partial) |
 | NOVEL-013 | Script-level multi-encoding chains (eval loops, macro-stomp + remote-template + encoded-payload stacks) | script-AST transformation capture through the chain — the normalized final-call surface, not the raw text | T1027 + T1059 family (partial) |
 
-- [ ] Engine-side `internal/stego`: zero-width codepoint detector for text and code
-  artifacts, with a YARA module backing it — presence-based, because density thresholds
-  are the first thing this class trivially drops below. Console adds the egress URL check.
+- [x] Engine-side zero-width codepoint detector for text and code artifacts — shipped
+  2026-10-25 as `scanner/stego` (the engine's detectors live under `scanner/`, not
+  `internal/`), surfaced as `ScanResult.Stego`, the `stego` eval detector, JSON schema
+  1.2.0, SARIF `stego/<class>` rules with byte-offset regions, and `--no-stego` /
+  `--stego-threshold`. Presence-based, as this row demands, with a *closed* list of
+  context exceptions each named in the report: BOM at offset 0, emoji ZWJ sequences and
+  presentation selectors, joiners beside joining scripts, ZWSP beside spaceless scripts
+  (Khmer, Thai, Lao, Myanmar, Tibetan), directional controls on a line holding RTL text,
+  CJK variation sequences, subdivision-flag TAG sequences. Classes beyond zero-width:
+  bidi controls (Trojan Source), TAG characters, data-carrying variation selectors.
+  Measured: 70 detections on 70,102 benign text artifacts from Kali's `/usr/share/doc`
+  and `/usr/lib/python3/dist-packages` (0.10 % FP; stray pasted U+200B in docs and
+  translation files, and Unicode-table source such as xregexp / jinja2), 0 on the 294
+  text files in `/usr/share/windows-resources`, 348 legitimate uses excused by the
+  rules above. The Khmer and RTL rules were added *because of* that measurement (they
+  removed 9 + 8 false positives); nothing else was tuned. A YARA module cannot back
+  this detector in go-yara without C, and a byte-pattern rule for the UTF-8 of U+200D
+  would fire on every family emoji, so the Go detector is the single implementation
+  and the YARA-module idea is dropped. Console still adds the egress URL check.
 - [ ] Sensor-side rules in `internal/behavior` for the host techniques: binder
   reconciliation, respawn-chain graphs, kill-pool matching, fanotify/generator/BPF
   inventories, CRIU restore tracing. Provenance (Debian/etc., per Phase 7 #5) is the
@@ -488,9 +583,11 @@ catch and how to catch it, not how to build it. This Phase 4-connected work maps
   suite, executed against the corpus.
 - [ ] Fixtures are generated synthetic samples (corpus policy: nothing sensitive is
   committed); every detector ships with FP/FN numbers through the Phase 1 gates.
-- [ ] `frameworks` gains a `novel: NOVEL-xxx` field beside the ATT&CK/UKC/MISP IDs, and
+- [~] `frameworks` gains a `novel: NOVEL-xxx` field beside the ATT&CK/UKC/MISP IDs, and
   each technique family is drafted as an ATT&CK submission with detection strategies —
-  the honest path for detection-first research to be upstreamed.
+  the honest path for detection-first research to be upstreamed. Started: stego findings
+  and fusion evidence carry `novel` (NOVEL-001) beside `technique` (T1027) in JSON and
+  SARIF; the full `frameworks` object and the submission drafts remain Phase 4 work.
 - [ ] `internal/peeler`: bounded unpeeling pipeline walking the candidate *tree* via
   parallel unwrap (the DoS design below). Over-cap yields a `peel-exhausted` outcome
   routed to emulation fallback — an honest result rendered first-class — never
@@ -582,7 +679,7 @@ T1091 (unimplemented in the corpus) is dropped.
 | T1546.008 | PAM | pam.d file provenance; unexpected module load events | sensor |
 | T1037.004 | init.d | sysv-init inventory vs provenance | sensor |
 | T1546.016 | Installer-script hooks | package-manager hook config provenance diffs | sensor |
-| T1027 + .013 | Obfuscation | NOVEL-001/002 stego detector | engine |
+| T1027 + .013 | Obfuscation | NOVEL-001/002 stego detector — shipped (`scanner/stego`, 2026-10-25) | engine |
 | T1036.005 | Match Legitimate Name | NOVEL-004 hash/endpoint correlation | sensor |
 | T1055 / T1620 | Injection / Reflective Load | deleted-exe and memfd-exec lineage anomalies; memory-symbol checks | sensor |
 | T1070.004 | File Deletion | running-but-deleted inode alert | sensor |
@@ -1049,6 +1146,46 @@ the kernel counters it already exposes — same taps, same event model, no secon
 
 ---
 
+---
+
+## Cleartext-plane detection — plaintext on the wire
+
+Cleartext protocols are half a detection plane, half a posture surface: plaintext on
+the wire leaks credentials, session tokens and payload shapes to every on-path
+observer, and the *attempt to strip encryption* is a MITM primitive in its own right.
+All rows are passive tap analytics; content-shape heuristics are opt-in, never
+default-on.
+
+| Signal | Detection analytic | Mapping |
+|---|---|---|
+| Plaintext protocol inventory | service-balance fingerprinting at flow start (HTTP/1.0, FTP, telnet, SNMPv1/2c, syslog-over-UDP, LDAP:389, POP3/IMAP without TLS, VNC without TLS, SMTP without STARTTLS) — first-seen per host, classified | posture/exposure (—) |
+| Credential-shaped plaintext | token-shaped heuristics on cleartext fields (`AUTH`, form-encoded credential looks, RFC-2617-style headers) — heuristic by construction, labeled as such | DLP-lite (T1552-adjacent, opt-in) |
+| STARTTLS/TLS strip attempts | per-peer TLS-capability memory — "spoke TLS yesterday, plaintext now to the same endpoint" is the stripping tripwire; corroborated cross-host like every netguard MITM row | T1557 family |
+| SNM-community exposure | default/community-string patterns in v1/v2c flows | T1552-adjacent (—) |
+| Listener exposure | passive listener inventory (`ss`-class passive pass): what *cleartext services this host offers* — the fleet exposure report ranks hosts by wire-plaintext surface | posture (—) |
+| Weak-TLS posture | TLS-hello analytics: versions < 1.2, export/legacy ciphers, no PFS, expired/odd chains — plaintext's quiet cousin | posture (—) |
+
+- [ ] `internal/clearplane`: flow-start classifiers + passive listener pass, joined by
+  per-peer TLS-capability state; no content store — cleartext *classes*, lengths and
+  fingerprints only, per the free-reporting privacy rules.
+- [ ] Credential-shape analytics are DLP-lite: opt-in per fleet profile, token-shape
+  heuristics honestly labeled heuristic (not a credential vault), fixtures only in
+  Phase 1 gates, no content capture by default.
+- [ ] Downgrade tripwire pairs with the netguard MITM rows and the trust-store row —
+  a stripping attempt rarely arrives alone; fleet corroboration upgrades single-host
+  signals structurally.
+- [ ] The weak-TLS posture row merges with the listener exposure row into one fleet
+  exposure report class: cleartext listeners, weak TLS versions, token-carrying
+  cleartext flows — posture-as-product, classes not payloads.
+- [ ] Honest boundary: the sensor sees flows terminating at or originating on its own
+  host; routed-through transit flows stay invisible — the same boundary the packet
+  guard documents, restated so nobody assumes DPI completeness.
+- [ ] Coverage honesty: protocol classifiers are first-byte heuristics — a protocol
+  that doesn't declare itself renders as *partial*, and the exposure report says so
+  instead of implying a complete inventory.
+
+---
+
 ## Cross-system gap sweep — planes the plan still missed
 
 Kernel, firmware, packet and host-state are covered; these are the remaining systems
@@ -1444,12 +1581,18 @@ become implants, and the exclusion list outlives every review that approved it.
 ## Repo layout
 
 ```
-astrav2/                     # MIT — the engine
-  cmd/astra-av/              # CLI
-  cmd/astra-mcp/             # MCP server
-  internal/engine/           # detectors
-  internal/eval/             # corpus harness, metrics, gates
-  evasionsuite/              # Episode 7 adversarial harness
+astrav2/                     # MIT — the engine (module github.com/cau-edr/cau, binary `cau`)
+  main.go, cmd_*.go          # CLI: scan, hash, cluster, add-hash, add-fuzzy, eval
+  scanner/                   # engine (single-pass), hash DB, YARA, heuristics
+  scanner/static/            # structural pass: PE parser, entropy, fuzzy hashes, anomalies
+  scanner/stego/             # invisible-codepoint pass (NOVEL-001/002)
+  scanner/fusion/            # detection fusion lattice
+  internal/report/           # text / JSON / SARIF reporters, exit policy
+  internal/eval/             # corpus harness, metrics, diff, gates (+ scannerbridge)
+  rules/, signatures/        # bundled detection content
+  corpus/smoke/, baselines/  # committed smoke corpus, baseline, gate policy
+  cmd/astra-mcp/             # MCP server (Phase 3, planned)
+  evasionsuite/              # Episode 7 adversarial harness (Phase 6, planned)
 
 astra-console/               # proprietary
   cmd/astra-sensor/          # resident agent (licensed, enforcing)
@@ -1637,9 +1780,27 @@ FP/FN in production" is where detection programs actually live or die.
 | Evasion-cost curves | per-detection published cost-of-evasion curves from the bypass corpus — what an attacker must spend (time, primitives, surface) to retain attack value — detection economics instead of "detected/not detected" | Phase 6 evasion suite, Phase 11 renderings |
 | Streaming scan plan | chunked, resumable scan of multi-GB files in the write path with hard budget caps — large-file handling stops being a timeout race and becomes a scheduled, interruptible stream | engine budget gates (Phase 1) |
 
-- [ ] `internal/fusion`: the lattice joins the one internal event model — fusion inputs
-  carry their evidence labels through, and a fused verdict renders *which* sources
-  agreed, not just the score.
+- [x] The lattice — shipped 2026-10-25 as `scanner/fusion` (engine detectors live under
+  `scanner/`), computed by the engine for every scan as `ScanResult.Fusion`. Inputs are
+  the per-detector results with their evidence labels (`static/packer.upx`,
+  `heuristic/process-injection`, `stego.zero-width`, `yara/<ns>/<rule>`), each with its
+  ATT&CK technique (heuristic categories gained a technique map for this) and NOVEL id.
+  Model: ratio = score/threshold capped at 1.5; the strongest scored source counts in
+  full, every other source at or above floor 0.4 corroborates at weight 0.5; definitive
+  sources (hash, YARA) are never downgraded. Fused ≥ 1.0 is SUSPICIOUS; the verdict
+  lists every source with a role (definitive / primary / corroborating / below-floor /
+  silent / skipped) so silence is explained as well as agreement, and `corroborated`
+  marks detections no single detector made. Fuzzy-hash matches are their own
+  `similarity` source, per the Phase 2 note. Rendered in text, JSON 1.2.0 (`fusion`),
+  SARIF (`fusion/corroborated`), the exit policy (`--fail-on heuristic`), and the
+  `fusion` eval detector, which reports *only* corroborated-only detections so the
+  per-detector table shows the lattice's own contribution. Measured on the 349-file
+  Kali Windows tool set: 0 fused-only detections, 0 new false positives; nearest benign
+  near-miss is `wget.exe` (static 7/8, no second source above the floor). Monotonicity
+  (raising any input never lowers score or tier) is a randomized test. Honest note: on a
+  set the individual thresholds were tuned against, cross-source sub-threshold evidence
+  rarely co-occurs, so the lattice's gain is pinned by synthetic fixtures today and must
+  be re-measured on the first real corpus (Phase 1's open item).
 - [ ] `internal/novelty`: fleet-relative first-seen persists per behavior-class key;
   the novelty ledger feeds the Threat Graph like the device and NIC inventories do.
 - [ ] Canaries are content, not code: the canary event generator ships in the detection
@@ -1647,7 +1808,10 @@ FP/FN in production" is where detection programs actually live or die.
   as the detections they verify.
 - [ ] Measure or don't ship: no improvement lands without per-detection before/after
   numbers on the same Phase 1 fixtures — the counter-claims (FP reduced, FN unchanged,
-  latency flat) published where the detection's model card lives.
+  latency flat) published where the detection's model card lives. Applied to the two
+  rows above: fusion before/after on windows-resources is 28 → 28 heuristic, 0 → 0
+  static, 0 fused-only; stego FP 0.10 % on 70k benign text artifacts; the smoke
+  baseline was re-recorded with the new detectors and the gate stays green.
 - [ ] Governance seam, written down once: benign-pattern contracts satisfy the
   no-risk-accepted rule *by construction* — they annotate benign patterns and expire;
   anything that would silence true-positive classes is, by definition, not a
@@ -1821,6 +1985,598 @@ numbers:
   detection exists, the row stays gap-marked in the coverage matrix instead of shipping
   a number the repo cannot itself support.
 
+---
+
+## Browser & extension plane — the biggest unmonitored exec surface on workstations
+
+The session sweep covered clipboard, capture and agent sockets. The browser is a
+separate plane: it is the single largest sandboxed-execution surface on most
+workstations, extensions can read and write every page, and MV3 did not close the
+plane — it reshaped it. Everything here is state and provenance, never page content.
+
+| Surface | Attack class | Detection / control |
+|---|---|---|
+| Extension inventory | sideloaded/dev-mode extensions, policy-force-installed extensions outside the enterprise policy anchor | per-browser extension manifest inventory with first-seen/removed events; dev-mode and unpacked installs flagged by default |
+| Extension permission drift | permissions escalated across versions (host-access widened, scripting added) | per-extension-id permission diffs vs manifest history; a widen without a user-visible update event alerts |
+| Native-messaging hosts | the extension→native-binary bridge that bypasses the sandbox | native-messaging host manifest inventory per browser profile; non-package binary targets flag; parent-child lineage joins the Threat Graph |
+| Policy-store writes | `/etc/opt/chrome/policies`, `/etc/firefox/policies` and the browser-managed-settings paths | provenance diff vs package or MDM owner; drop-ins from non-MDM lineage alert |
+| Debug port exposure | `--remote-debugging-port` on local or non-localhost interface | process-arg + listener inventory; a debugging port on 0.0.0.0 is cross-tenant exfil waiting to happen |
+| Service-worker persistence | background workers resurrecting on every browser start, outliving a tab close | long-lived SW inventory per extension-id; respawn-chain pattern reuses NOVEL-004 analytics |
+| Credential/profile paths | mass reads of Login Data, Cookies, Local State by non-browser lineage | T1555.003 analytics on the profile path set; reads outside the browser process itself alert |
+| Protocol-handler drift | custom URL-scheme handlers (`xdg-mime`, Windows app registration) registering new schemes that launch binaries | handler-registration events + mapping diffs vs provenance |
+| Enterprise managed-config | force-install lists edited outside the MDM lineage | ChromeManagementPolicyProvider / `policies.json` diffs reconciled against the fleet policy source |
+| Download gating | the download path is a dropper plane; `downloads.open` + autorun chains | download-event taps joined to the install-plane shscanner (install-plane row): a downloaded `.sh` opened by the browser hits the shscanner the same way an installer-lineage script does |
+
+- [ ] `internal/browserplane`: one sensor module, inventories per installed browser and
+  profile; no page content is read, ever — the row is manifest, permission and lineage
+  state only, consistent with the free-reporting privacy rules.
+- [ ] Managed-policy source-of-truth: the console carries the fleet's expected
+  extension/policy baseline; drift from that baseline becomes the alert class rather
+  than any name allow-list — provenance stays the FP suppressor.
+- [ ] Extension model-card: popular extensions build an extension-prevalence table (opt-in,
+  class-level) analogous to the file-prevalence surface — a brand-new extension with
+  wide host permissions on two hosts worldwide is a very different signal from the
+  same extension on 100M.
+- [ ] Honest boundary: the plane sees state the browser exports to the OS; in-browser
+  memory and intra-tab behavior stay inside the browser's own sandbox and are *not*
+  claimed. Users wanting in-page detection need a dedicated browser extension — flagged
+  as a documented future surface, out of scope for the sensor sweep.
+
+---
+
+## Email, chat & delivery plane — the inbound rail
+
+Delivery-side detection has historically lived in gateways. The host sees email as
+*files written into a mail store*, chat as *downloads landing in a user tree* and
+collaboration docs as *browser-launched installers*; the plane's job is to catch the
+delivery → open → execute hop that the gateway missed, with provenance for every
+received file as the anchor.
+
+| Surface | What the sensor does |
+|---|---|
+| Mail store watcher | watches Maildir/mbox/offlineimap and MUA attachment caches as file sources; new attachments trigger engine scans before the user opens them, same holds as install-plane for exec-perm paths |
+| Draft/outbox watcher | drafts and outbox files are also scanned — a sent attachment is the moment compromise can turn into onward infection, and the plan does not pretend outbound is somebody else's problem |
+| MUA plugin inventory | mutt/neomutt mailcap, Thunderbird extensions, Evolution plugins + their manifest paths — mailcap entries are a classic "pipe this to a tool" execution bridge; drift vs provenance flags |
+| Chat/download trees | Element/Signal/Slack/Teams/Discord download roots registered as watched file sources; downloaded files inherit the same holds + content analysis as install-plane |
+| Collaboration-doc opens | Office/OnlyOffice/LibreOffice launched with a browser-downloaded argument lands as a lineage pivot — docu-dropper patterns are structurally visible, not inferred from argv text |
+| Calendar + ICS | calendar invites can carry attachment URLs; the ICS file is parsed as data (same AST discipline as shscanner) with URL-presence rendered honestly rather than content captured |
+| Autoconfiguration drift | mail-client server/port and TLS-config changes outside the MUA process itself (profile-tamper class) |
+| Rule-based forwarding | server-side forwarding rules are console-only; local client-side filters are inventoried per MUA, drift vs provenance flagged |
+
+- [ ] `internal/mailplane`: file-source watchers only; the sensor never speaks
+  SMTP/IMAP/POP3 and never reads mail content as text — the row operates on
+  attachments and metadata as inventoried artifacts, not on message bodies, per the
+  cleartext-plane privacy stance.
+- [ ] Delivery-to-execution timeline: a scanned attachment opened by the MUA within
+  a short window becomes a one-hop pivot in the Threat Graph — the delivery edge is
+  explicit rather than inferred.
+- [ ] Honest gap: webmail (Gmail/Outlook-on-the-web) is browser plane; the mail plane
+  sees it only through the browser's download tree, and the coverage row says so
+  instead of claiming webmail inspection.
+- [ ] Gateway honesty: this is host-side defense-in-depth, not a replacement for an
+  email security gateway. The row documents that boundary so operators do not
+  substitute one for the other.
+
+---
+
+## DNS plane — deep sweep
+
+The packet-guard and cloud-adjacent sweeps touched DNS; this is the plane in full.
+Attackers increasingly operate at the resolution layer because it predates the
+transport they can't inspect, and most host EDRs stop at `resolv.conf`.
+
+| Signal | Analytic |
+|---|---|
+| Resolver drift | `/etc/resolv.conf`, `nsswitch.conf`, systemd-resolved/dnsmasq config diffs vs provenance; split-horizon override detection |
+| Local resolver inventory | which process on this host answers port 53 — unauthorized resolvers alert, same provenance anchor as the service-balance row |
+| Per-process resolver escape | processes using their own DNS stack (DoH/DoT libraries bundled, raw UDP/53 egress bypassing nsswitch) — first-seen per lineage |
+| DoH/DoT adoption | per-process DoH/DoT endpoints inventoried; a non-browser process adopting DoH is a C2-channel smell under T1071.004 |
+| Query-shape anomalies | subdomain-entropy, length distribution, TXT-record cadence, long-poll query patterns — DNS-tunnel fingerprints seen from the local resolver's logs where available |
+| NXDOMAIN cadence | burst patterns consistent with DGA probing — the honest version flags cadence class, never domain content |
+| TTL-zero and corporate-name oscillation | cache-poisoning fingerprints already in the netguard addendum, now reconciled with resolver-drift events for cross-plane corroboration |
+| Hosts-file writes | the install-plane row's `/etc/hosts` tamper gets a resolution-plane companion — a host whose names redirect quietly can't see its own alerts |
+| mDNS/LLMNR exposure | the netguard LLMNR poisoning row's inbound half gets its outbound half — this host *answering* names it shouldn't own flags |
+| Chrome/Firefox trusted-root for DoH | browser-installed DoH endpoints and auto-upgrade state as posture; the plane says what resolver each browser profile is actually using |
+
+- [ ] `internal/dnsplane`: aggregates config diffs, listener inventory, per-process
+  egress classification, and resolver-log parsing where available — same evidence-class
+  rules, kernel-asserted vs inferred.
+- [ ] DNSSEC posture is a reported class: resolver supports and validates, resolver
+  bypasses validation, or no validation — the choice lives with the operator, the
+  state lives on the console.
+- [ ] Encrypted-DNS honesty: a host that *should* be using DoH/DoT per fleet policy
+  but isn't flags; a host using DoH/DoT when fleet policy pins a local resolver flags.
+  No judgment on the choice; policy drift is the alert class.
+- [ ] Content stays unread: query names are not stored or forwarded in any
+  default-on surface — classes, cadence and shape only; a full-query capture mode
+  exists as an explicit, opt-in forensics option labeled accordingly.
+
+---
+
+## Mobile & MDM — scoped honestly, not pretended away
+
+Mobile endpoints are a plane the host-sensor can't own. The honest answer is to
+*not ship a mobile agent* in v1 while owning the two sides a Linux-first EDR
+actually can defend: the MDM/console *integration* with existing mobile fleets
+(Jamf, Intune, Workspace ONE, Google Admin, Fleet, MDM-equivalents) and
+mobile-device *approaches to a managed workstation* (USB tethering, HID over BLE,
+AirDrop/Nearby-share mounts).
+
+| Surface | Approach |
+|---|---|
+| MDM telemetry ingest | one standards-aligned adapter per supported MDM — attestation state, compliance posture, lost/stolen status, OS version drift — ingested as fleet metadata; incidents involving a user route to the right workstation + mobile posture at once |
+| Mobile approach to workstation | when a mobile tethers via USB/BT and injects HID or storage, the device-plane rows already own it; the mobile approach adds *attribution* (which mobile device fingerprint joined the workstation) |
+| Mobile OS attestation anchoring | PlayIntegrity/Attestation KEY / DeviceCheck receipts flow through as attestation evidence beside TPM quotes — the attestation plane extends to mobile without requiring Astra to run on mobile |
+| Lost-device policy routing | an alert on a workstation whose user's mobile is "lost" per MDM escalates automatically — cross-plane evidence that already exists is finally used |
+| Explicit non-goal | no mobile agent in v1. The surface is wide, the ecosystems ship their own agents, and shipping half-coverage would violate the "complete for its persona" rule. The MDM integration is where the plan commits. |
+
+- [ ] `internal/mdm-adapter`: standards first (SCEP, CSV, SAML/SCIM where applicable),
+  vendor-specific APIs behind the standards adapter — the one event model carries
+  mobile posture the same way it carries kernel events.
+- [ ] Review clock: the "no mobile agent" position reviews each Console-Phase cycle
+  against the inversion table — if "cross-platform agent" becomes the field's
+  entry bar, the position reopens; if the standards track makes host attestation
+  the real anchor instead, the position persists.
+
+---
+
+## Hypervisor & virtualization plane
+
+Phase 7 #7 chose eBPF; the kernel section introduced "vkernel" opt-in guest-introspection.
+This plane makes the hypervisor side a full citizen: VMs host most of the fleet and
+the hypervisor sees them in ways no in-guest agent can match. Honesty up front: a
+fully malicious hypervisor is below the trust boundary this plan claims to defend —
+the plane handles honest hypervisors seeing dishonest guests, and the row says so.
+
+| Surface | Analytic / integration |
+|---|---|
+| QMP / libvirt event ingest | guest-start/stop, hotplug, snapshot, migrate events on the console; a guest hot-plugged with a USB-NIC is one hop from the netguard rows |
+| Guest introspection (vkernel) | opt-in LibVMI/KVMI driven from the host — process/memory/network state of a guest seen from a layer the guest's rootkit cannot unhook, same labeled evidence class as any sensor tap |
+| Snapshot-era attack class | snapshot restore quietly resetting a sensor's post-event ledger — guest reverting beyond its last console-receipt sequence number is a tamper-equivalent event, caught by the hardware-anchor monotonic receipts |
+| Cross-VM pivots | the Threat Graph gains a hypervisor edge: "same hypervisor, same host NIC, same host disk" are first-class pivot queries for cross-tenant investigations |
+| PCIe passthrough + SR-IOV | the device plane extends through virt — a VM with passthrough NIC is on the same wire as the host, and the netguard analytics apply by host identity |
+| Nested virtualization | nested-virt enablement and L2 guest run — a posture row, not a verdict; an unexpected L2 is a lineage pivot into the vkernel surface |
+| Live migration | migrating a sensor-equipped guest triggers re-attestation of the new host and re-anchoring of monotonic receipts; sensor identity is binding-aware |
+| OCI runtime integration | containerd/CRI-O event bus ingestion for container-native fleets — Kubernetes was covered; the row makes containerd a first-class peer of libvirt |
+
+- [ ] `internal/virtplane`: libvirt and containerd adapters first, hypervisor-vendor APIs
+  behind them (Proxmox, oVirt, OpenStack Nova, vSphere) — one surface, many providers,
+  same event model and same free-reporting privacy rules.
+- [ ] vkernel is opt-in and auditable: every introspection operation lands as a labeled
+  event in the ledger (operator saw what, when, under which policy); operators who do
+  not opt-in get zero introspection by construction.
+- [ ] Hypervisor honesty row: "the hypervisor is below the trust boundary" is a stated
+  limit; the plan carries it in the standards program's event-transparency profile.
+
+---
+
+## Identity & cloud-identity plane
+
+The cross-system sweep carried identity-config drift; this makes the identity *provider*
+plane a full citizen. SSO, MFA factors, workload identities, OIDC/SAML relying-party
+configs, and the service-account surface — most incidents land here and host-only
+agents cannot see any of it.
+
+| Surface | What the console does |
+|---|---|
+| IdP event ingest | SCIM push + SSE/audit log pull for Okta/Azure AD/Entra/Google Workspace/Keycloak — login telemetry, MFA factor adds/resets, impossible-travel, risky sign-ins, admin-role grants |
+| Service-account inventory | cloud-provider service accounts and their key material (long-lived keys especially), IAM policy drift, cross-account role assumptions — the row anchors on provenance (the "which Terraform/Pulumi plan created this" edge) |
+| Workload identity | OIDC federations, workload-identity bindings, trust-chain changes — a service account newly trusted by a new issuer is one of the louder cloud-attack signals, rarely alerted |
+| Session-token theft shape | the host sees cookie-store reads (session plane) and egress endpoints; the console sees the *reuse* of those tokens from a different ASN — fused into one evidence story the host can't tell alone |
+| MFA-fatigue cadence | push-notification cadence patterns distinguished from legitimate catch-up — same cadence analytics the brute-force row uses, in a different plane |
+| Human/non-human mix | identity-origin labels on every event: human user, workload identity, service account — because a service account "logging in interactively" is itself the alert |
+| Join-token lifecycle | sensor enrollment tokens are themselves cloud-identity-adjacent — the hardware-anchor row's duplicate-serial check gets its cloud twin: the same enrollment token observed from two network identities within a window flags |
+
+- [ ] `internal/idplane` (console-side): one surface, many adapters; the hardest work is
+  normalizing audit-log formats into the plan's one event model.
+- [ ] Rotation and revocation are first-class: a stolen session token's revocation
+  propagates to all sinks within the same CI-tested window the sensor-key rotation row
+  requires.
+- [ ] Boundary row: a compromised IdP is below the trust floor — the plane detects
+  evidence that the IdP has been abused, and documents that root cannot be verified
+  from a leaf. Same honesty line the hypervisor plane carries.
+
+---
+
+## Deception plane — canaries as first-class detection content
+
+Canary files were a line in the Phase 9 blind-spot sweep; honeycreds appeared in the
+cloud-adjacent sweep. This section promotes deception to its own plane with its own
+model-card discipline — because a well-maintained deception set is the single most
+reliable zero-FP tripwire a defender can own, and most products either ship it as a
+checkbox or omit it entirely.
+
+| Primitive | Where it lives | Fires when |
+|---|---|---|
+| Canary files | fleet-managed decoy documents and binaries at analyst-chosen paths | opened, read, exec'd, or hashed by any process; FP floor is ~0 because the file has no business being touched |
+| Honeycreds | planted token-shaped strings in predictably-read credential stores (envfiles, config roots, mail stores) | the string appears anywhere outbound — console-side correlation across the fleet |
+| Honey-processes | synthetic processes with attractive argv patterns (`cp /etc/shadow`, `curl ... | sh`) running under a cgroup that reaches no filesystem | any ptrace/`process_vm_read` against the honey-process is a strict TP |
+| Honey-services | listener ports on canary profiles (fake SSH on 2222, fake RDP, fake Redis) carrying banner fingerprints that match no real service | connection attempt → first-class credential-collection source for the IR plane |
+| Honeykeys | SSH keypairs planted in `~/.ssh/authorized_keys2` with distinctive comment strings; connection using the pubkey from anywhere flags |
+| Honey-S3/registry URLs | canary URLs embedded in credential dumps the attacker is likely to steal — the console owns the receiver so attempts are logged with full lineage |
+| Canary rules | detection rules shipped intentionally with no production matches, verifying the rule-build and alerting pipeline is alive end-to-end (ties the detection-liveness program)|
+
+- [ ] `internal/deception`: an fleet-managed deception bundle with signed manifests —
+  canaries are detection content, not configuration, and ride the same lifecycle
+  as every other rule (promotion gates, model cards, re-review).
+- [ ] Rotation on receipt: a tripped canary auto-rotates with a new string so the
+  same artifact fires again if the attacker returns — tripwires with no stale state.
+- [ ] FP floor stated honestly: canaries are low-FP only for the primitives above; a
+  canary file that benign backup software reads flags, and the row documents this as
+  a tuning problem the deception template can solve rather than a false positive to
+  weigh against TPs.
+- [ ] Legal posture: deception artifacts carry an attribution banner in content when
+  the format allows it (document properties, SSH key comments), so a credulous
+  investigator at a third party is not left trying to "attribute" an owner-planted
+  canary against the owner.
+
+---
+
+## Autonomous-agent governance — the safety bounds for agent type 4
+
+The console describes four agent types; the fourth (autonomous detection agents) has
+the loosest constitution and the highest capability. "Human-in-the-loop approval gate"
+is stated already; this section writes the rest of the contract so the agent can grow
+without becoming a surface its own detection rules would flag.
+
+| Bound | Rule |
+|---|---|
+| Scope | autonomous agents operate on *the detection content lifecycle only* — proposing rules, clustering corpora, triaging eval results. They never author sensor code, never author policy, never author other agents, and never author training data. |
+| Approval | every promoted artifact ships only after human review *and* a measured FP/FN improvement on a held-out corpus the agent has not seen; the Phase 1 gates are the final arbiter. |
+| Rate | per-day proposal caps per agent, per-day merge caps per repo — a runaway agent cannot flood the review queue; the queue IS the backpressure. |
+| Isolation | each agent runs under its own identity and tool allowlist; the Phase 3 MCP sandbox contains inference and content synthesis in a cap-dropped, read-only environment with path confinement. |
+| Audit | every proposal — accepted or rejected — joins the append-only audit journal, with the full prompt, tool-call sequence, and reviewer disposition. Journal is treated like detection evidence (hardware-anchor row). |
+| Red-team | a standing adversarial-eval harness tries to prompt-inject agent context (via corpus comments, rule meta fields, intake feed content) once per cycle; a successful injection fails the agent's release train the way a bypass fails the engine's. |
+| Rollback | every merged autonomous-agent proposal carries a one-click revert that re-plays the Phase 1 regression against the state immediately before merge; the standing revert contract (closing-the-loop §1) applies. |
+| Model provenance | the agent's underlying model is pinned by hash, carries its own model card with training-data provenance, and is updateable only through the signed release channel — the same gate as detection content, applied to the thing that *writes* detection content. |
+| Transparency | every published surface (coverage renderings, model cards, incidents) labels content *authored or materially informed by* an autonomous agent, so analysts and auditors can trace the proposal path. The label never becomes a credit line used to pad coverage. |
+| Shutdown | a `cau agents --freeze` operator switch halts all autonomous agents instantly, with a published reason; the switch itself is an audited action and recovery requires out-of-band approval. |
+
+- [ ] `internal/agentgov`: typed proposal objects, rate counters, red-team hooks and
+  the one-click revert. Nothing an autonomous agent does bypasses this surface.
+- [ ] The six-months-to-write rule: no autonomous-agent capability expansion ships
+  without six months of audit journal to review against. The agent earns surface area
+  by behaving, not by promise.
+- [ ] Alignment honesty: these agents assist detection; they are not operators. The
+  plan refuses the stance where "the AI shipped it" is a credible authorship claim —
+  humans own every artifact's provenance.
+
+---
+
+## Observability & self-metrics contract
+
+Every section budgets throughput, benchstat, drop policy, selftest health. There is
+no single surface rendering any of it to an operator. This section writes the
+observability contract so what the plan promises can be seen in one place.
+
+| Surface | Content |
+|---|---|
+| `/metrics` endpoint | Prometheus/OpenMetrics on every daemon: engine, sensor, scanner, console, relay. Metric name schema is a published spec (`astra_<component>_<class>_<unit>`), semver'd like every other spec. |
+| OpenTelemetry traces | end-to-end traces for every scan, every event path, every console query — opt-in on sensors to respect the agent-footprint budget, default-on in server components. |
+| Structured logs | one JSON log schema (one more entry in the event-model registry), the sink matrix carries it like any other sink. |
+| Honesty-index export | the standards program's honesty-index renders as a JSON artifact on the `/metrics` tree beside the counters — the thing buyers and auditors look at is the same thing operators look at. |
+| Internal health | `cau selftest` is the single-command summary; `/metrics` is the dashboard-grade stream. The two never disagree — the selftest schema binds the metric names it summarizes. |
+| Alerting primitives | reference Prometheus rule packs and Grafana dashboards ship beside the exposition surface — operators who use these do not have to invent the queries. |
+| Trace content rules | traces carry *class labels* (event-class, verdict-class, sink-class), never payload content; the free-reporting privacy rule applies to observability the same way it applies to telemetry. |
+| Metric honesty | drop-counter, event-loss-by-class, tap-alive counts and selftest-fail counts live on `/metrics` as first-class citizens — if the plan says a thing is measured, the metric says what and where. |
+
+- [ ] `internal/metrics`: the one metric exposition stack; every module registers its
+  counters here, drift from the naming schema fails the registry conformance.
+- [ ] One contract per component: the sensor's `/metrics` schema is a document; the
+  console's is another; the engine CLI emits a one-shot metrics artifact per run so
+  CI tooling can pick it up without a daemon.
+- [ ] Measure the measurer: `cau bench` compares `/metrics` exposition cost at target
+  scrape intervals against the sensor's RSS and CPU ceilings; the observability layer
+  itself fits within the tap-governor budget.
+
+---
+
+## Data governance & privacy — retention, residency, subject rights
+
+The free-reporting rules keep *content* out of surfaces. Governance beyond content —
+retention, deletion, access, residency, lawful-basis — is the companion contract.
+Written down, measured, and tested like code, because privacy posture that lives in
+a PDF decays the same way documentation does.
+
+| Area | Rule |
+|---|---|
+| Retention classes | every event class has a retention window, published; defaults are short (14/90/365 by class), customer-settable with a hard upper floor by class. The event-transparency profile encodes the matrix. |
+| Deletion propagation | a deletion request propagates to every sink the console wrote to — within the window the sinks' owners allow — and the propagation outcome lands as an audit artifact per sink. "Delete" is a verb with a measurable outcome. |
+| Subject access | the console provides a subject-access workflow: all records *about this user identifier* across sensors and sinks, bounded by lawful basis — not a feature, a workflow. |
+| Geo-residency | the console-plane deployment pins a region; cross-region ingestion is default-off; multi-tenant installs honor per-tenant pins. The architecture carries the row even when a single-region deployment makes it moot. |
+| Lawful basis label | every ingest surface labels the lawful basis the data was collected under (legitimate interest, contract, consent, legal obligation) — the console won't accept an ingest surface it can't label, by construction. |
+| Minimization audit | the free-reporting rules get a conformance suite: a sampled stream of outgoing events is verified against the content-class policy per release; captures leak nothing a developer forgot was captured. |
+| Operator access to captured material | all operator reads of event content (not metadata) are logged, surfaced in the same audit journal as detection events, with the step-up approval gate from the console hardening. |
+| Export portability | the subject-access and full-tenant-export paths produce the same STIX/ECS/OCSF-compatible bundle; moving to a different vendor's console is a bounded operation. |
+
+- [ ] `internal/gov`: retention timers, deletion routers, subject-access query planner;
+  the row is deliberately part of the console because retention is server-state.
+- [ ] GDPR/CCPA/HIPAA alignment is a conformance axis of the event-transparency profile;
+  compliance claims are only made where the suite verifies them.
+- [ ] Residency honesty: a multi-region console is a future architecture, not a day-one
+  feature. The row commits to the single-region path first with the data-model
+  carrying the geo-pin so the second region is a scale change, not a refactor.
+
+---
+
+## Backup, disaster recovery & continuity — the console as a system of record
+
+The console holds detection content, policy, incident history, audit journal and
+subject-access material. If an incident takes out the console, the fleet goes
+dark — and worse, the evidence necessary to understand what happened is gone with
+it. This section commits the DR contract so continuity isn't a slide deck.
+
+| Element | Rule |
+|---|---|
+| RPO target | 15 minutes for the audit journal and policy state; 1 hour for ingested event history. The published target enters the standards program. |
+| RTO target | 60 minutes for the control plane (policy decisions, sensor connectivity); 24 hours for the full console UI including dashboards. |
+| Backup frequency | continuous WAL shipping for the primary datastore, hourly consistent snapshots, encrypted at-rest under the console vault, offsite replication to a region chosen by the operator. |
+| Restore drills | every quarter, a restore drill from the previous month's backup is scripted and executed in a sandbox; the drill result lands on the console status dashboard whether it passed or failed. A failed drill fails the release the same way a bypass fails the engine. |
+| Air-gap continuity | the air-gap deployment ships with a documented operator playbook for backup rotation and restore — manual, scripted, and tested in CI against the same artifact pack as the release. |
+| Catastrophic-loss policy | the published RTO is honored or the vendor says so, in plain words, in the subscriber portal — availability degradation is a reportable incident with its own postmortem commitment. |
+| Sensor-side continuity | sensors operate autonomously during console outage: local verdicts, local policy from last-known-good signed bundle, spool from the transport ladder. Console returns and the spool drains; the ladder's rung 5 is the DR tool, not a corner case. |
+| Replay | the audit journal is replayable — a restored console can regenerate secondary indexes from the primary journal, so DR tests exercise the fastest path to a working console. |
+
+- [ ] `internal/dr`: backup orchestrator, drill harness, restore validator; the drill
+  is in CI, not in a wiki page.
+- [ ] Published status: the drills' pass/fail records are on the status page, same
+  cadence as release notes — a vendor that cannot restore its own system is a vendor
+  whose promises decay silently.
+- [ ] Blast-radius minimization: console tenant isolation extends to backup — a
+  restore request from one tenant never recovers another tenant's content; the drill
+  verifies this per release.
+
+---
+
+## Insider-threat axis — detections that act differently when the attacker is logged in
+
+Most of this plan assumes the adversary runs code the operator didn't author. The
+insider axis is different: the adversary is logged in, uses sanctioned tools, and
+leaves telemetry the operator typically treats as normal. The plan commits a few
+rows specifically because this axis stays uncovered in commercial EDR by design —
+their mission is malware, and insider abuse is reframed as a different product.
+
+| Signal | What catches it |
+|---|---|
+| Access without purpose | identity-plane query cadence against repositories/data stores that the user has never read before, measured against their role peer group — "the first developer to read the HR partition" is an operational alert |
+| Export cadence | per-user bulk-copy and transfer-tool invocation rate — rclone to a user-controlled destination from a laptop is the shape, not the tool |
+| Clipboard-to-elsewhere | the session-plane clipboard tap paired with a cross-identity egress inventory — selection-of-sensitive followed by paste-to-personal flags |
+| Repository tour | git clone/fetch patterns that cover a wide code surface the user did not previously touch — "last four weeks of commits across 500 repos" is one commit history nobody writes legitimately |
+| MFA factor churn | an insider resetting their own factors ahead of a departure window — the IdP plane sees it; the row connects it to HR state when available |
+| Deliberate obfuscation | a tool run with argv designed to resemble a different, benign tool — the analytic anchors on hash/lineage (NOVEL-004) rather than argv, so insiders don't defeat it by renaming |
+| Role-boundary violations | sudo events outside the user's declared duty scope, cross-tenant access from a tenant-bound identity — governance rules in `specs/role-boundaries.yaml` define the measurable |
+| Deletion before departure | mass delete, repo nuke, log-clean activity by a single identity in a short window — the T1070 family refocused on authored actions, not malware actions |
+
+- [ ] `internal/insider`: the signals land in the same event model with an
+  `authorship: insider | adversary | unknown` label from identity-plane fusion.
+  Nothing new is captured; the existing captures compose a different question.
+- [ ] Governance line: the insider axis has heightened privacy posture — identity
+  labels, HR-state ingest and user-level analytics are opt-in per fleet profile, the
+  profile is a documented management decision, and the lawful basis is explicit on
+  every event.
+- [ ] Workers' rights honesty: the plan commits to not implement productivity
+  surveillance primitives (keystroke counters, idle timers, screen-sampling for
+  monitoring) under the insider axis or any other. Detection content targets abuse
+  shapes, not work patterns.
+
+---
+
+## Fleet-wide search & query language — the analyst surface
+
+The Threat Graph (Phase 7 #8) carries pivots; the console surfaces incidents.
+Analysts also need to *ask* questions the UI didn't predict — "every host that
+loaded a kernel module not in /lib/modules/<kver>/ in the last 7 days." Without a
+query language this becomes a dashboard-sprawl problem.
+
+| Element | Rule |
+|---|---|
+| Language | a Kusto/SPL/EQL-shaped query language anchored on the one event model's schema; typed, auto-completed from the event-model registry (design-debt #1). |
+| Scope | queries run over the console's audit journal, the event vault and the Threat Graph with the same syntax; the plane the query reads from is a filter clause, not a mode. |
+| Cost | every query carries a cost estimator (rows scanned, bytes read, time-budget); over-budget queries ask the analyst to narrow — the console does not spend tenant capacity silently. |
+| Saved queries | queries save as versioned artifacts (hunting content lifecycle), carrying their own model-card: cost, last-run, hits, authorship, fleet exposure (how many tenants have adopted the query). |
+| Share | queries export as cross-tool-portable artifacts — Sigma, Lucene, Kusto, EQL where the shape allows; the standards program's spec dictates the mapping. |
+| Live hunt | the same query can be registered as a *live hunt* — the engine runs it continuously against incoming events as a scheduled job, with its own rate-limit and model-card. |
+| Privacy guard | query results obey the free-reporting rules — content-class access requires the console step-up approval, metadata-class is open to the analyst's scope. |
+| Education | reference query packs ship as learning content — "top 20 Linux hunts" published alongside the detection content; the ten-path's substrate posture benefits from a lingua franca analysts recognize. |
+
+- [ ] `internal/queryplane`: typed query executor, cost estimator, saved-query store,
+  live-hunt scheduler. One language for every surface a question can be asked of.
+- [ ] Portability test in CI: every saved query emits an equivalent Sigma rule (when
+  the mapping exists); the CI verifies the Sigma rule round-trips.
+- [ ] The query language is itself in `specs/` with a conformance suite, because an
+  analyst-facing standard this plan ships is one that lasts beyond the first version.
+
+---
+
+## Operator ergonomics & accessibility — the thing that makes the plan survive the operator
+
+Every detection section above has a flow where an operator must act. The ergonomics
+of those flows decide whether the operator does act, or routes around them. This
+section writes the UX contract — not visual design, which is downstream, but the
+operator-side guarantees that make the plan ship-worthy.
+
+| Rule | Why it is in a plan file |
+|---|---|
+| Alert density is a product goal | per-sensor alert rate budget per fleet profile, measured and published; a profile that exceeds the rate loses features by default until retuned — alert fatigue is the single-largest FP failure mode and it is a *product* number, not an operator's problem. |
+| Explanation is first-class | every verdict renders *why* (which rule, which score, which offset) in both JSON and human text; the free-reporting rules explicitly keep the explanation un-watermarked and un-crippled. |
+| Keyboard-first console | all operator flows are keyboard-navigable with announced focus states; the console passes WCAG 2.2 AA on CI (axe-core as a build gate). |
+| Localization honesty | the console renders in English v1; the renderer is i18n-shaped so community translations ride a published glossary. Detection content model-cards localize separately. The plan does not ship pseudo-localizations; it commits to the operator reading what the author wrote. |
+| Alert triage flows | the triage flow is scripted — one hotkey disposition per class; the audit journal captures the keystroke and the context, so analyst muscle memory and audit trail align. |
+| Terminal operator UX | `cau` is a well-behaved CLI: JSON everywhere, exit codes everywhere, `--format` consistent across commands, `--quiet`/`--verbose` consistent, color-off by default when stdout isn't a TTY. The ergonomics live in `specs/cli-contract.md`. |
+| Dark/light/high-contrast | the console carries three themes with contrast tested at build time; the operator who runs night shifts isn't an edge case. |
+| Error-text standards | errors render as class + reason + minimal action + full-detail-under-key; the console doesn't make the operator read a stack trace to triage an ingest failure. |
+| Response-latency floor | p99 of every operator action in the console is under a published threshold; interactive dashboards don't block on the vault. |
+| On-call ergonomics | the on-call surface is a dedicated view: top open incidents, selftest health, drop-counter deltas — the one view the person being paged lands on at 3am. |
+
+- [ ] `internal/opsux`: alert-density counters, triage-flow instrumentation, the
+  CLI contract validator; ergonomic claims gate like any other claim.
+- [ ] Accessibility is CI: axe-core + keyboard-only test runs as part of the console
+  build gate; a regression blocks release the same way a bypass does.
+- [ ] Documentation is operator-facing: every detection row has an "operator next
+  step" paragraph in its model card — the row is only shipped when an analyst can
+  know what to do with it in under a minute.
+
+---
+
+## Benchmark peers — honest comparisons, published cadence
+
+The ten-path commits to a third-party scoring gate; the Phase 7 continuous
+multi-vendor benchmark covers commercial labels. This section commits to the
+*open-peer* benchmark that the OSS persona cares most about: how Astra compares
+against the open stack the market actually uses. Published numbers, same corpora,
+same gates, no asterisks.
+
+| Peer | Position in the OSS stack | What we measure |
+|---|---|---|
+| ClamAV | the default file scanner; largest install base; signature-driven | FP/FN on the Phase 1 corpus, throughput per MB, memory per worker, pack-size and update-latency |
+| YARA / YARA-X | rule engines; YARA-X is the modern Rust rewrite | compile-time, scan-time, memory, feature-coverage per rule — Astra uses go-yara; this is apples-to-apples per rule set |
+| Suricata / Zeek | network-side peers; cleartext-plane and netguard rows are their adjacent surface | cleartext detection, protocol classification depth, cross-plane correlation deltas |
+| OSQuery | host-state query engine; the inventory rows share a lot of its shape | tap-sum footprint vs. OSQuery's agent, inventory freshness, query latency at scale |
+| Falco | eBPF-based runtime security; closest architectural peer | per-rule cost, false-positive rate on the Phase 1 corpus, coverage overlap and gaps |
+| Wazuh | OSSEC descendant; combines agent + log analysis; a sink in Phase 7 #9 | event-model drift (do we feed Wazuh cleanly?), coverage overlap, FP/FN head-to-head where rules overlap |
+| OpenEDR | the "comparable scope" peer (already its own gap section) | numbers from that section's parity test, published together |
+| ClamAV-ML / Elastic Endpoint rules | ML-tier and public rule-pack peers | temporal-generalization performance, false-positive weight on same held-out corpora |
+
+- [ ] `cau bench peers`: the harness supports external peers directly; a published
+  CI workflow runs the peer matrix per release.
+- [ ] Peer-honesty rules: every peer-comparison claim ships with the exact commit,
+  config and corpus used; results reproduce from the published artifacts under the
+  same CI budget. No cherry-picked peers, no hidden tuning.
+- [ ] A peer who publishes a counter-claim gets the Phase 1 corpus and the published
+  methodology for free; the third-party scoring gate takes it from there.
+- [ ] Peer credit, written down: ClamAV, YARA, Suricata, Zeek, OSQuery, Falco, Wazuh
+  and OpenEDR are the shoulders this stack stands on. The plan says so in prose so
+  the comparison is positioning, not sniping.
+
+---
+
+## Internationalization & multi-tenant branding — the paid surfaces, done once
+
+Multi-tenancy is a paid surface; branding and localization touch it. The policy
+below exists so the paid feature grows along the natural architectural grain
+instead of adding knobs no one asked for.
+
+| Surface | Rule |
+|---|---|
+| Tenant branding | the console supports per-tenant logos and theme colors; no per-tenant HTML/CSS, no code injection by configuration — a brand is a token set, not a theme file. |
+| Detection content localization | model-cards and operator-action text localize through a glossary file per language; a localization that drifts from the glossary (misses a technical term) is a CI-visible drift. |
+| Alert localization | alert render templates are localized where community translations exist; the content is not — a technique name stays canonical in the one-event model so cross-locale correlation works. |
+| Timezone and locale | per-user timezone, per-tenant default timezone, consistent locale handling in every rendered date; the audit journal keeps UTC-first with locale-rendering a view layer only. |
+| RTL support | the console UI supports RTL locales (Hebrew, Arabic) at the layout level; axe-core testing runs under RTL in CI. |
+| Date, number, currency | pricing is per-tenant currency where supported; the TCO calculator (Phase 7 #4) carries a currency switcher. |
+| Compliance frames | the standards program ships EU-first alongside the US-first content — the Phase 4 EU-alternatives work (MISP galaxies, Malpedia, ENISA) stays an equal citizen, not a translation. |
+
+- [ ] `internal/tenancy`: branding tokens, localization router, tenant-isolation
+  invariants; multi-tenant branding re-uses the policy-schema (design-debt #3) so no
+  new config surface appears.
+- [ ] CI covers RTL and accessibility together; the plan doesn't ship an improved
+  console that works only for one direction of text.
+
+---
+
+## Rollout, canary & release-safety mechanics
+
+Detection content, sensor code and console code all ship. Each has a different
+rollout risk shape. The release-safety mechanics commit the gates so a bad release
+doesn't become a fleet incident.
+
+| Artifact | Rollout rule |
+|---|---|
+| Detection content | staged rollout: internal corpus → canary fleet (10 hosts) → 1% fleet → 10% → 100%, with FP-rate gates at each ring; a ring whose FP exceeds budget halts progression and alerts the pack owner. |
+| Sensor code | tiered rollout matching the above; sensors in a given ring self-report selftest state before the ring is called healthy; the drain-and-handoff work (design-debt #4) is per-ring. |
+| Console code | blue/green deploy with the audit journal as the source of truth; the new console reads from a snapshot of the old one, writes new events to both until cutover. |
+| Config/policy changes | signed, versioned, dry-run (`cau policy apply --dry`) renders the impact before the change takes effect — "4,382 hosts move from audit to enforce" is a reviewable artifact. |
+| Emergency rollback | one-key rollback per artifact class, with pre-committed rollback artifacts (last-known-good signed bundle) available offline. Rollback is a drill, same cadence as DR. |
+| Change-record ledger | every ring transition joins the audit journal with the rationale, metric values at transition and operator identity — a release is a sequence of auditable events, not a vibe. |
+| Change-freeze | a published change-freeze calendar matched to major detection events (hunt weekends, conference weeks); release-cadence respects operator reality. |
+| Feature flags | all new behavior ships behind a feature flag by default; the flag is a tenant-scoped policy object; killing the feature flag is a tested operation. |
+
+- [ ] `internal/rollout`: rings, FP-rate gates, dry-run planner, rollback harness —
+  all in one place so a sensor PR and a detection PR follow the same path.
+- [ ] Canary fleet is the detection-liveness canary too: synthetic signal injection
+  runs there and is the first-stage probe for every new release. Two guarantees in
+  one program.
+- [ ] Public release-safety record: the status page carries release-ring progression
+  for every artifact class — operators see where in the fleet their class of change
+  is before it reaches them.
+
+---
+
+## Documentation & reference program — the asset the OSS persona reads
+
+The OSS persona is analyst-first; the console persona is operator-first. Both need
+documentation that isn't an afterthought. This program commits the writing like it
+commits the code.
+
+| Audience | Deliverable |
+|---|---|
+| First-time user (OSS) | `cau` quickstart under 10 minutes, from install to first scan to first JSON; failure modes documented, not hidden |
+| Rule author | a rule-authoring guide with the Phase 1 gates described, FP-measurement walkthrough, worked YARA/Sigma rules, model-card template |
+| Operator | an operator handbook: console tour, incident flow, policy editor, exclusion governance, DR drill procedures |
+| Developer | an architecture doc per phase, each component's event schema, the standards program's specs reproduced where they apply |
+| Analyst | the top-20 hunts, the top-20 detections' operator-action paragraphs, the query language reference |
+| Integrator | a cookbook per sink (Wazuh, Elastic, Splunk, Sentinel, Matano, Security Onion) + MDM/IdP adapter guides |
+| Compliance | the event-transparency profile rendered as a plain-language reference, with the retention matrix and residency pins |
+| Contributor | code-of-conduct, PR checklist, the standards-program conformance expectation, the test-before-promote discipline for content |
+| Vendor-neutral references | the open-matrix (NOVEL + Phase 11) rendered as living documentation on the website, same source as the coverage artifact |
+
+- [ ] `docs/`: every section above has a tracked owner, a last-reviewed date in the
+  file front-matter, and a staleness gate — a doc more than 6 months since last
+  review renders yellow in CI; 12 months red; the owner is responsible for the
+  refresh same as a detection content review.
+- [ ] Doc-as-code: every documentation example runs as a test. Code samples that drift
+  fail CI; command outputs are regenerated by CI, never hand-edited.
+- [ ] Operator-facing search: the docs site ships with the same query language the
+  console uses — one syntax, two surfaces.
+- [ ] The handbooks live under the same MIT license as the engine; the console's
+  operator handbook has its own commercial license to match the console, but the
+  content is complete — no "upgrade to see" sections.
+
+---
+
+## Appendix — glossary & terminology discipline
+
+Terminology that recurs in this plan is pinned here so later readers (human or
+agent) do not have to infer meaning from context. The entries are also what the
+localization glossary (above) uses as canonical sources.
+
+- **Attempt vs. compromise.** An attempt is evidence that an exploitation step was
+  tried. A compromise is evidence that the step succeeded. The exploit-attempt ledger
+  stores both as separate statuses; coverage reports count them separately.
+- **Kernel-asserted vs. inferred evidence.** Kernel-asserted events come from kernel
+  subsystems (netlink, LSM, eBPF taps on kernel points); inferred events come from
+  user-space reconciliation. Every event carries the label.
+- **Provenance.** The package/transaction system of record for a file, binary, config
+  or key. The provenance DB (Phase 7 #5) is the authoritative benign anchor.
+- **Prevalence.** How many hosts in the fleet (or the global OSS prevalence co-op) have
+  observed the artifact. Fleet-relative prevalence is the FP suppressor and the
+  novel-threat detector.
+- **Peel.** The bounded unpeeling pipeline (NOVEL-012) that unwraps obfuscation
+  layers. The peel is tree-shaped; the budget is global per sample.
+- **Clove.** A unit of garlic-routed telemetry: an opaque bundle a relay can forward
+  but not read.
+- **Rung.** A step in the transport ladder. Rung transitions are timeline events.
+- **Honest gap-mark.** A detection row explicitly marked `partial` or `planned` in
+  coverage renderings — the plan's substitute for coverage inflation.
+- **Honesty-index.** The scriptable artifact that renders coverage, FP measurements,
+  selftest health and drop-accounting into a single thing a buyer can run.
+- **Fusion.** The lattice combining multiple weak signals into a single verdict,
+  rendering which inputs agreed and which disagreed.
+- **Fleet-pinned.** An attribute (key, service, interface) explicitly registered as
+  belonging to the fleet; the baseline the drift analytics measure against.
+- **PQC.** Post-quantum cryptography (ML-KEM, ML-DSA, hybrid X25519+ML-KEM-768).
+  Deliberately not "quantum encryption/QKD" — the plan refuses that terminology.
+- **Attempt ledger.** The one unified store of attempt-class events (kernel, hardware,
+  privilege, network, memory). Separate from the incident ledger.
+- **Autonomous agent (type 4).** A detection-content-authoring agent governed by the
+  autonomous-agent governance section. Never an operator; never a code author.
+- **Benign-pattern contract.** A time-boxed, signed suppression of a specific benign
+  pattern. Never a suppression of a true-positive class.
+- **The ten-path.** The YARA/Sigma/Zeek-shaped outcome of becoming the layer the field
+  plugs into. Market-gated, not code-gated.
+
+---
+
 ## Risks
 
 - **Adoption vs. revenue.** OSS engine too weak → nobody adopts. Too strong → nobody pays.
@@ -1834,3 +2590,34 @@ numbers:
 - **Feature migration.** Memory/fileless detection is the strongest differentiator and it
   lands in the closed repo by necessity. Keep the OSS roadmap honest about what it will
   never do rather than teasing it.
+- **Scope creep from gap-sweeping.** This plan has had five self-audit passes and keeps
+  growing; the discipline that keeps it honest is that every added row must earn its
+  phase, its owner and its Phase-1-measurable test. Mitigation: the design-debt audit
+  runs each release cycle, and a row without owner and measurement regresses to the
+  backlog rather than shipping as a promise.
+- **Standards-program dilution.** Writing standards nobody adopts turns strict specs
+  into private requirements. Mitigation: the standards-program's own honest-boundary
+  rule — a spec with no non-Astra passing conformance regresses to "requirement".
+- **Autonomous-agent drift.** The type-4 agents can expand their effective scope
+  through unaudited corner cases. Mitigation: the agent-governance red-team runs on
+  every release train, and the shutdown switch is a one-command operator action.
+- **Over-footprint.** The sweep count makes the tap-sum design-debt row structurally
+  critical; without the tap governor and policy compiler landing early, the agent-
+  footprint sales point (Phase 7 #7) erodes release by release. Mitigation: those two
+  design-docs are blocking for Console-Phase B.
+- **Open-matrix freerider risk.** Publishing the honesty-index invites free-riders who
+  publish Astra's methodology minus the measurement discipline. Mitigation: the
+  methodology itself is open and conformance is the enforcement — "freerider" is
+  what the field will call anyone who publishes without passing the suite.
+- **Over-centralization of the console.** The console accrues identity, deception,
+  DR, backup, insider-threat, standards and governance surfaces; a compromise there is
+  catastrophic. Mitigation: the defense-in-depth hardening section carries the console
+  rows; privilege-separation inside the console is a Phase B deliverable; the audit
+  journal survives console loss by construction.
+- **Legal exposure from deception.** Honeycreds and deception artifacts carry attribution
+  banners (above) to avoid attribution confusion. The lawful-basis labels and the
+  insider-axis privacy posture are the operator-side control; the plan documents the
+  legal posture rather than claiming all jurisdictions are the same.
+- **Localization and accessibility debt.** Shipping English + axe-AA at launch is the
+  commitment; drift beyond that becomes technical debt that the design-debt audit tracks
+  alongside architecture debt.

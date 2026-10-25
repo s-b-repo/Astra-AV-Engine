@@ -25,9 +25,11 @@ import (
 const (
 	envSignatures = "CAU_SIGNATURES"
 	envRules      = "CAU_RULES"
+	envFuzzy      = "CAU_FUZZY"
 
 	relSignatures = "signatures/hashes.txt"
 	relRules      = "rules"
+	relFuzzy      = "signatures/fuzzy.txt"
 )
 
 // resourceRoots returns the directories that are searched for a resource, in

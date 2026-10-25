@@ -7,6 +7,9 @@ import (
 	"strings"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // Reporter is the common shape of every output format.
@@ -65,6 +68,15 @@ func (r *TextReporter) Write(w io.Writer, in Input) error {
 		}
 		if hasHeur {
 			c.writeHeuristic(bw, h, !hasResult)
+		}
+		if hasResult && res.Static != nil {
+			c.writeStatic(bw, res.Static)
+		}
+		if hasResult && res.Stego != nil {
+			c.writeStego(bw, res.Stego)
+		}
+		if hasResult && res.Fusion != nil {
+			c.writeFusion(bw, res.FilePath, res.Fusion)
 		}
 	}
 
@@ -179,7 +191,11 @@ func (c config) writeHeuristic(w io.Writer, h scanner.HeuristicResult, standalon
 			byCategory[m.Category] = append(byCategory[m.Category], m)
 		}
 		for _, cat := range order {
-			fmt.Fprintf(w, "     [%s]\n", c.boundedMessage(cat))
+			tech := ""
+			if t := scanner.CategoryTechnique(cat); t != "" {
+				tech = "  (" + c.boundedMessage(t) + ")"
+			}
+			fmt.Fprintf(w, "     [%s]%s\n", c.boundedMessage(cat), tech)
 			for _, hit := range byCategory[cat] {
 				extra := ""
 				if hit.Hits > 1 {
@@ -199,6 +215,147 @@ func (c config) writeHeuristic(w io.Writer, h scanner.HeuristicResult, standalon
 	}
 }
 
+// writeStatic renders the structural analysis. A breach gets a full block;
+// scored evidence below the threshold gets one line naming the classes, so a
+// "packed with UPX" is visible even when it does not alert; a spotless
+// structure prints nothing (the hash/YARA line already said CLEAN).
+func (c config) writeStatic(w io.Writer, s *static.Result) {
+	path := c.boundedMessage(s.FilePath)
+	if s.Error != nil {
+		fmt.Fprintf(w, " [ERR] Static analysis on %s: %s\n\n", path, c.errorString(s.Error))
+		return
+	}
+	if s.Skipped != "" {
+		fmt.Fprintf(w, " [~] SKIPPED static analysis on %s: %s\n", path, c.boundedMessage(s.Skipped))
+		return
+	}
+	threshold := staticThresholdFor(s, c.staticThreshold)
+	var scored []static.Anomaly
+	for _, a := range s.Anomalies {
+		if a.Score > 0 {
+			scored = append(scored, a)
+		}
+	}
+	switch {
+	case s.Score >= threshold:
+		fmt.Fprintf(w, " [!] DETECTED (Static) — %s\n", path)
+		fmt.Fprintf(w, "     %-10s: %s\n", "Verdict", "SUSPICIOUS")
+		fmt.Fprintf(w, "     %-10s: %d / %d threshold\n", "Score", s.Score, threshold)
+		if p := s.PE; p != nil {
+			fmt.Fprintf(w, "     %-10s: %s %s, %d imports, imphash %s\n", "Image", p.Format, c.boundedMessage(p.MachineName), p.ImportCount, c.boundedHash(p.Imphash))
+			if p.Packer != nil {
+				fmt.Fprintf(w, "     %-10s: %s\n", "Packer", c.boundedMessage(p.Packer.Name))
+			}
+		}
+		fmt.Fprintln(w)
+		for _, cs := range s.Categories {
+			if cs.Applied == 0 {
+				continue
+			}
+			fmt.Fprintf(w, "     [%s] %d/%d\n", c.boundedMessage(cs.Category), cs.Applied, cs.Cap)
+			for _, a := range scored {
+				if a.Category != cs.Category {
+					continue
+				}
+				tech := ""
+				if a.Technique != "" {
+					tech = "  (" + c.boundedMessage(a.Technique) + ")"
+				}
+				fmt.Fprintf(w, "       %-34s %s%s\n", c.boundedMessage(a.Class), c.boundedMessage(a.Detail), tech)
+			}
+		}
+		if sig := s.PE; sig != nil && sig.Authenticode != nil {
+			fmt.Fprintf(w, "     [Signature] %s\n", c.boundedMessage(sig.Authenticode.Note))
+		}
+		fmt.Fprintln(w)
+	case len(scored) > 0:
+		names := make([]string, 0, len(scored))
+		for _, a := range scored {
+			names = append(names, c.boundedMessage(a.Class))
+		}
+		fmt.Fprintf(w, " [~] LOW SUSPICION (static) — %s (score: %d): %s\n", path, s.Score, strings.Join(names, ", "))
+	}
+}
+
+// writeStego renders the invisible-codepoint analysis. A breach gets a full
+// block naming every codepoint, where it first appears and an example with
+// the invisibles made visible; excused codepoints (emoji joiners, joining
+// scripts, a BOM) print nothing, because they are not evidence.
+func (c config) writeStego(w io.Writer, s *stego.Result) {
+	path := c.boundedMessage(s.FilePath)
+	if s.Error != nil {
+		fmt.Fprintf(w, " [ERR] Stego analysis on %s: %s\n\n", path, c.errorString(s.Error))
+		return
+	}
+	if s.Skipped != "" || !stegoBreached(s, c.stegoThreshold) {
+		return
+	}
+	threshold := stegoThresholdFor(s, c.stegoThreshold)
+	fmt.Fprintf(w, " [!] DETECTED (Stego) — %s\n", path)
+	fmt.Fprintf(w, "     %-10s: %s\n", "Verdict", "SUSPICIOUS")
+	fmt.Fprintf(w, "     %-10s: %d / %d threshold\n", "Score", s.Score, threshold)
+	fmt.Fprintf(w, "     %-10s: %s, %d line(s), %d invisible codepoint(s) scored, %d excused by context\n", "Text", c.boundedMessage(s.Encoding), s.Lines, s.Suspicious, s.Benign)
+	fmt.Fprintln(w)
+	for _, f := range s.Findings {
+		tags := ""
+		if f.Technique != "" || f.Novel != "" {
+			tags = "  (" + strings.TrimSpace(strings.Join([]string{c.boundedMessage(f.Technique), c.boundedMessage(f.Novel)}, " ")) + ")"
+		}
+		fmt.Fprintf(w, "     [%s] %d\n", c.boundedMessage(f.Class), f.Score)
+		fmt.Fprintf(w, "       %s%s\n", c.boundedMessage(f.Detail), tags)
+	}
+	for _, cp := range s.Codepoints {
+		for _, ex := range cp.Examples {
+			fmt.Fprintf(w, "       %s %s\n", c.boundedMessage(cp.Code), c.boundedMessage(ex))
+		}
+	}
+	fmt.Fprintln(w)
+}
+
+// writeFusion renders the lattice's verdict when it adds something to what
+// the detectors already printed: a detection reached only by corroboration,
+// or a verdict several sources agreed on. A fused verdict that restates one
+// detector's own breach, or a clean file, prints nothing.
+func (c config) writeFusion(w io.Writer, path string, v *fusion.Verdict) {
+	if !v.Detected() || (len(v.Agreed) < 2 && !v.Corroborated) {
+		return
+	}
+	path = c.boundedMessage(path)
+	if v.Corroborated {
+		fmt.Fprintf(w, " [!] DETECTED (Fusion) — %s\n", path)
+	} else {
+		fmt.Fprintf(w, " [+] Fusion — %s\n", path)
+	}
+	fmt.Fprintf(w, "     %-10s: %s (fused %.2f / %.2f, %s confidence)\n", "Verdict", strings.ToUpper(string(v.Tier)), v.Score, v.Threshold, v.Confidence)
+	agreed := make([]string, 0, len(v.Agreed)) // strongest first: not boundedList, which sorts
+	for _, a := range v.Agreed {
+		agreed = append(agreed, c.boundedMessage(a))
+	}
+	fmt.Fprintf(w, "     %-10s: %s\n", "Agreed", strings.Join(agreed, ", "))
+	if len(v.Techniques) > 0 || len(v.Novel) > 0 {
+		fmt.Fprintf(w, "     %-10s: %s\n", "Techniques", strings.Join(boundedList(c, append(append([]string{}, v.Techniques...), v.Novel...)), ", "))
+	}
+	for _, src := range v.Sources {
+		if !src.Counted {
+			continue
+		}
+		switch src.Role {
+		case fusion.RoleDefinitive:
+			fmt.Fprintf(w, "     [%s] %s\n", c.boundedMessage(src.Name), src.Role)
+		default:
+			fmt.Fprintf(w, "     [%s] %d/%d, ratio %.2f, %s\n", c.boundedMessage(src.Name), src.Score, src.Threshold, src.Ratio, src.Role)
+		}
+		for _, e := range src.Evidence {
+			tech := ""
+			if e.Technique != "" {
+				tech = "  (" + c.boundedMessage(e.Technique) + ")"
+			}
+			fmt.Fprintf(w, "       %-34s %s%s\n", c.boundedMessage(e.Label), c.boundedMessage(e.Detail), tech)
+		}
+	}
+	fmt.Fprintln(w)
+}
+
 func (c config) writeSummary(w io.Writer, in Input) {
 	policy := &ExitPolicy{cfg: c}
 	code, reason := policy.decide(in)
@@ -206,6 +363,9 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	hash := in.HashDetectionCount()
 	yara := in.YaraDetectionCount()
 	heur := len(in.HeuristicBreach(c.heuristicThreshold))
+	stat := len(in.StaticBreach(c.staticThreshold))
+	steg := len(in.StegoBreach(c.stegoThreshold))
+	fused := len(in.FusionCorroborated())
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, strings.Repeat("-", 60))
@@ -214,11 +374,14 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	fmt.Fprintf(w, " Hash detections       : %d\n", hash)
 	fmt.Fprintf(w, " YARA detections       : %d\n", yara)
 	fmt.Fprintf(w, " Heuristic detections  : %d\n", heur)
+	fmt.Fprintf(w, " Static detections     : %d\n", stat)
+	fmt.Fprintf(w, " Stego detections      : %d\n", steg)
+	fmt.Fprintf(w, " Fused-only detections : %d\n", fused)
 	fmt.Fprintf(w, " Errors                : %d\n", in.ErrorCount())
 	fmt.Fprintf(w, " Exit code             : %d (%s)\n", code, reason)
 	fmt.Fprintln(w, strings.Repeat("-", 60))
 
-	if hash+yara+heur > 0 {
+	if hash+yara+heur+stat+steg+fused > 0 {
 		fmt.Fprintln(w, "\n *** THREATS DETECTED — DO NOT EXECUTE FLAGGED FILES ***")
 	} else if in.RunError != nil {
 		fmt.Fprintln(w, "\n Scan did not run.")

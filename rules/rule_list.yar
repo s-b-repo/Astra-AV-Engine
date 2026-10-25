@@ -8,6 +8,8 @@
 //     are wide.
 //   * Byte patterns are written as hex strings, not as the text "0x89,0x00".
 //   * meta.threat_level 1-5, meta.family names the family the rule claims.
+//   * meta.mitre_attack (optional) is the ATT&CK technique id; the fusion
+//     lattice and the coverage reporting read it.
 
 rule wannacry_ransomware
 {

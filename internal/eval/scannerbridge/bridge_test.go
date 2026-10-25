@@ -1,12 +1,14 @@
 package scannerbridge
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cau-edr/cau/internal/eval"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/static"
 )
 
 const (
@@ -33,7 +35,7 @@ func loadEngine(t *testing.T) ([]eval.Detector, *eval.Manifest) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ys.Close() })
-	return Engine(db, ys, 0), m
+	return append(Engine(db, ys, 0), StegoDetector(0)), m
 }
 
 func TestEngineOnSmokeCorpus(t *testing.T) {
@@ -56,7 +58,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 	if len(rep.Errors) != 0 {
 		t.Errorf("errors: %+v", rep.Errors)
 	}
-	if rep.Totals != (eval.Counts{TP: 5, TN: 4}) {
+	if rep.Totals != (eval.Counts{TP: 6, TN: 9}) {
 		t.Errorf("totals = %s", rep.Totals)
 	}
 
@@ -67,7 +69,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 			t.Errorf("rule %s fired on benign samples: %v", rs.Rule, rs.FalsePositivePaths)
 		}
 	}
-	for _, want := range []string{"wannacry_ransomware", "mimikatz_strings", "lokibot_stealer", "generic_ransomware_extensions", "Smoke_Hash Synthetic Sample"} {
+	for _, want := range []string{"wannacry_ransomware", "mimikatz_strings", "lokibot_stealer", "generic_ransomware_extensions", "Smoke_Hash Synthetic Sample", "stego/zero-width"} {
 		if !fired[want] {
 			t.Errorf("rule %q did not fire; fired: %v", want, fired)
 		}
@@ -89,7 +91,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 		}
 	}
 	// Per-family breakdown is populated from the manifest families.
-	if len(rep.ByFamily) != 5 {
+	if len(rep.ByFamily) != 6 {
 		t.Errorf("families = %+v", rep.ByFamily)
 	}
 }
@@ -139,5 +141,68 @@ func TestYaraSignalNaming(t *testing.T) {
 	}
 	if f.Duration <= 0 {
 		t.Error("duration not measured")
+	}
+}
+
+func TestStaticDetector(t *testing.T) {
+	dir := t.TempDir()
+	// Plain text: static runs, nothing fires.
+	text := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(text, []byte(strings.Repeat("plain\n", 1000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := StaticDetector(0, nil)
+	if d.Name() != eval.DetectorStatic {
+		t.Errorf("name = %s", d.Name())
+	}
+	f, err := d.ScanFile(text)
+	if err != nil || f.Detected() || f.Verdict != eval.VerdictClean {
+		t.Errorf("text: %+v %v", f, err)
+	}
+	// Similarity hit through a fuzzy database: fires with per-rule and family signals.
+	data := make([]byte, 20000)
+	for i := range data {
+		data[i] = byte(i*31 + i/7)
+	}
+	sample := filepath.Join(dir, "b.bin")
+	if err := os.WriteFile(sample, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := static.ComputeFuzzy(data)
+	if h.TLSH == "" {
+		t.Fatal(h.TLSHNote)
+	}
+	fdb, err := static.ParseFuzzyDB(strings.NewReader("TLSH|"+h.TLSH+"|Synthetic Family\n"), "mem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = StaticDetector(0, fdb).ScanFile(sample)
+	if err != nil || !f.Detected() || f.Verdict != eval.VerdictSuspicious {
+		t.Fatalf("fuzzy: %+v %v", f, err)
+	}
+	rules := map[string]eval.Signal{}
+	for _, s := range f.Signals {
+		rules[s.Rule] = s
+		if s.Detector != eval.DetectorStatic {
+			t.Errorf("signal detector = %s", s.Detector)
+		}
+	}
+	if _, ok := rules["static/score"]; !ok {
+		t.Error("summary signal missing")
+	}
+	if _, ok := rules["static/fuzzy.tlsh"]; !ok {
+		t.Errorf("anomaly signal missing: %v", rules)
+	}
+	if fz, ok := rules["static/fuzzy/tlsh"]; !ok || fz.Family != "synthetic" {
+		t.Errorf("fuzzy family signal = %+v", fz)
+	}
+	// Unreadable file is a scan error, not a miss.
+	if _, err := d.ScanFile(filepath.Join(dir, "missing")); err == nil {
+		t.Error("missing file scanned")
+	}
+	// Threshold is honoured.
+	f, _ = StaticDetector(1000, fdb).ScanFile(sample)
+	if f.Detected() {
+		t.Error("threshold 1000 still fired")
 	}
 }

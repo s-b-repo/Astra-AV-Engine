@@ -12,6 +12,8 @@ import (
 
 	"github.com/cau-edr/cau/internal/eval"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // HashDetector wraps the signature database. It is not configured when db is
@@ -215,6 +217,73 @@ func slug(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
+// StaticDetector wraps the structural analysis (entropy, fuzzy hashes, PE
+// anatomy). It fires when the static score reaches threshold; a threshold
+// <= 0 uses the package default. db may be nil (no similarity lookups).
+//
+// Signals: one "static/score" summary, one "static/<class>" per scored
+// anomaly so per-rule metrics can show which structural class carries the
+// recall, and one "static/fuzzy/<type>" per similarity match carrying the
+// matched threat as the family.
+func StaticDetector(threshold int, db *static.FuzzyDB) eval.Detector {
+	if threshold <= 0 {
+		threshold = static.Threshold
+	}
+	return staticDetector{threshold: threshold, db: db}
+}
+
+type staticDetector struct {
+	threshold int
+	db        *static.FuzzyDB
+}
+
+func (staticDetector) Name() string { return eval.DetectorStatic }
+
+func (d staticDetector) ScanFile(path string) (eval.Finding, error) {
+	start := time.Now()
+	r := static.AnalyzeFile(path, static.Options{Threshold: d.threshold, FuzzyDB: d.db})
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if r.Error != nil {
+		f.Verdict = eval.VerdictError
+		f.Err = r.Error
+		return f, r.Error
+	}
+	if r.Skipped != "" || r.Score < d.threshold {
+		return f, nil
+	}
+	f.Verdict = eval.VerdictSuspicious
+	var top []string
+	for _, cs := range r.Categories {
+		if cs.Applied > 0 && len(top) < 3 {
+			top = append(top, fmt.Sprintf("%s(%d)", cs.Category, cs.Applied))
+		}
+	}
+	f.Signals = []eval.Signal{{
+		Detector: eval.DetectorStatic,
+		Rule:     "static/score",
+		Detail:   fmt.Sprintf("score %d/threshold %d; %s", r.Score, d.threshold, strings.Join(top, " ")),
+	}}
+	for _, a := range r.Anomalies {
+		if a.Score == 0 {
+			continue
+		}
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorStatic,
+			Rule:     "static/" + a.Class,
+			Detail:   a.Detail,
+		})
+	}
+	for _, m := range r.FuzzyMatches {
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorStatic,
+			Rule:     "static/fuzzy/" + strings.ToLower(m.Type),
+			Family:   familyFromThreatName(m.ThreatName),
+			Detail:   fmt.Sprintf("%s distance=%d score=%d", m.ThreatName, m.Distance, m.Score),
+		})
+	}
+	return f, nil
+}
+
 // Engine returns the full detector set the CLI runs. Nil db disables the
 // hash detector, nil ys disables YARA, heuristicThreshold < 0 disables the
 // heuristics (0 means the scanner default).
@@ -230,4 +299,102 @@ func Engine(db *scanner.SignatureDB, ys *scanner.YaraScanner, heuristicThreshold
 		out = append(out, HeuristicDetector(heuristicThreshold))
 	}
 	return out
+}
+
+// StegoDetector wraps the invisible-codepoint detector for text and code
+// artifacts. It fires when the stego score reaches threshold (presence-based
+// at the default); a threshold <= 0 uses the package default.
+//
+// Signals: one "stego/score" summary and one "stego/<class>" per scored
+// finding, so per-rule metrics show whether zero-width carriers or bidi
+// controls carry the recall.
+func StegoDetector(threshold int) eval.Detector {
+	if threshold <= 0 {
+		threshold = stego.Threshold
+	}
+	return stegoDetector{threshold: threshold}
+}
+
+type stegoDetector struct{ threshold int }
+
+func (stegoDetector) Name() string { return eval.DetectorStego }
+
+func (d stegoDetector) ScanFile(path string) (eval.Finding, error) {
+	start := time.Now()
+	r := stego.ScanFile(path, stego.Options{Threshold: d.threshold})
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if r.Error != nil {
+		f.Verdict = eval.VerdictError
+		f.Err = r.Error
+		return f, r.Error
+	}
+	if r.Skipped != "" || r.Score < d.threshold {
+		return f, nil
+	}
+	f.Verdict = eval.VerdictSuspicious
+	f.Signals = []eval.Signal{{
+		Detector: eval.DetectorStego,
+		Rule:     "stego/score",
+		Detail:   fmt.Sprintf("score %d/threshold %d; %d scored, %d excused, run %d", r.Score, d.threshold, r.Suspicious, r.Benign, r.LongestRun),
+	}}
+	for _, fd := range r.Findings {
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorStego,
+			Rule:     "stego/" + strings.TrimPrefix(fd.Class, "stego."),
+			Detail:   fd.Detail,
+		})
+	}
+	return f, nil
+}
+
+// FusionDetector runs the whole engine and fires only when the fusion
+// lattice reaches the suspicious tier by corroboration: no single detector
+// crossed its own threshold. The detections it reports are therefore
+// exactly the ones fusion adds on top of the other detectors, which is the
+// number the plan asks every improvement to publish.
+//
+// The engine is shared and must be fully configured by the caller (hash
+// database, YARA, heuristics, static, stego); its own per-detector verdicts
+// are not reported here, the individual detectors do that.
+func FusionDetector(e *scanner.Engine) eval.Detector {
+	return fusionDetector{e: e}
+}
+
+type fusionDetector struct{ e *scanner.Engine }
+
+func (fusionDetector) Name() string { return eval.DetectorFusion }
+
+func (d fusionDetector) ScanFile(path string) (eval.Finding, error) {
+	if d.e == nil {
+		return eval.Finding{Path: path, Verdict: eval.VerdictError}, fmt.Errorf("%w: fusion detector has no engine", eval.ErrNotConfigured)
+	}
+	start := time.Now()
+	r, _ := d.e.ScanFile(path)
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if r.Error != nil {
+		f.Verdict = eval.VerdictError
+		f.Err = r.Error
+		return f, r.Error
+	}
+	v := r.Fusion
+	if v == nil || !v.Corroborated || !v.Detected() {
+		return f, nil
+	}
+	f.Verdict = eval.VerdictSuspicious
+	f.Signals = []eval.Signal{{
+		Detector: eval.DetectorFusion,
+		Rule:     "fusion/corroborated",
+		Detail:   v.Explanation,
+	}}
+	for _, s := range v.Sources {
+		if !s.Counted {
+			continue
+		}
+		f.Signals = append(f.Signals, eval.Signal{
+			Detector: eval.DetectorFusion,
+			Rule:     "fusion/agreed/" + s.Name,
+			Detail:   fmt.Sprintf("%d/%d ratio %.2f (%s)", s.Score, s.Threshold, s.Ratio, s.Role),
+		})
+	}
+	return f, nil
 }

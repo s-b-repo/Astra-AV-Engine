@@ -45,7 +45,7 @@ fmt-check:
 lint: fmt-check vet
 
 bench:
-	go test -run '^$$' -bench . -benchmem ./scanner/
+	go test -run '^$$' -bench . -benchmem ./scanner/ ./scanner/static/ ./scanner/stego/
 
 # ── Evaluation harness ──────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ install: build
 	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/cau/rules $(DESTDIR)$(PREFIX)/share/cau/signatures
 	install -m 0755 $(BINARY) $(DESTDIR)$(PREFIX)/bin/$(BINARY)
 	install -m 0644 rules/*.yar $(DESTDIR)$(PREFIX)/share/cau/rules/
-	install -m 0644 signatures/hashes.txt $(DESTDIR)$(PREFIX)/share/cau/signatures/
+	install -m 0644 signatures/hashes.txt signatures/fuzzy.txt $(DESTDIR)$(PREFIX)/share/cau/signatures/
 
 clean:
 	rm -rf $(BINARY) $(BINARY).exe $(EVAL_OUT) coverage.out

@@ -11,7 +11,10 @@ corpus/
     manifest.json
     hashes.txt           # signature DB with the hash-only sample's SHA-256
     malicious/*.bin      # text files that trip rules/rule_list.yar
-    benign/*             # true negatives, incl. an empty file and a script with a URL
+    malicious/*.md       # prose with stray zero-width codepoints (stego pass)
+    benign/*             # true negatives: an empty file, a script with a URL, emoji
+                         # joiners, Persian and Hindi text, a BOM, UTF-16 — legitimate
+                         # uses of the codepoints the stego pass looks for
   <name>/                # real corpora live outside git (see below)
 ```
 
@@ -82,8 +85,18 @@ numbers nobody can reproduce.
 ## The smoke corpus
 
 `smoke/` is synthetic: plain-text files carrying the strings that the shipped
-rules look for, plus one file that no rule matches and that is detected only
-through `smoke/hashes.txt`. With `rules/rule_list.yar` and `smoke/hashes.txt`
-the engine must reach 100% recall and 0 false positives on it; the test
+rules look for, one file that no rule matches and that is detected only
+through `smoke/hashes.txt`, one Markdown file with stray zero-width codepoints
+between its words (nothing is encoded in them; the fixture exercises presence
+detection), and benign controls that use the same invisible codepoints
+legitimately (emoji sequences, Persian ZWNJ, Devanagari ZWJ, a byte-order
+mark, UTF-16 text). With `rules/rule_list.yar` and `smoke/hashes.txt` the
+engine must reach 100% recall and 0 false positives on it; the test in
 `internal/eval/scannerbridge` enforces that, and the harness's own tests check
 that the manifest validates with hash verification on.
+
+`make baseline` records the current report as `baselines/smoke.json`;
+`make eval` fails when a change regresses against it under
+`baselines/policy.json` (no recall drop, no new false positive, no new error).
+The `fusion` detector in the baseline counts only verdicts reached by
+corroboration, so its row is the lattice's own contribution.

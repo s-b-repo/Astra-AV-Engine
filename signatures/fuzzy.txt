@@ -1,0 +1,26 @@
+# CAU EDR — Fuzzy Signature Database
+# Format: TYPE|DIGEST|THREAT_NAME
+#
+#   TLSH|<70 hex characters, optional T1 prefix>|<threat name>
+#   SSDEEP|<blocksize:hash1:hash2>|<threat name>
+#   IMPHASH|<32 hex characters>|<threat name>
+#
+# Rules for this file (enforced by static.LoadFuzzyDB and by the tests):
+#   - every digest is validated for its type; malformed lines are skipped with
+#     a warning, never silently accepted
+#   - duplicate digests are rejected; a conflicting re-labelling names the
+#     existing entry so it can be removed deliberately
+#   - the threat name must not contain '|' or line breaks
+#
+# Matching thresholds (published, see scanner/static/fuzzy.go):
+#   TLSH distance <= 30, ssdeep score >= 70, imphash exact.
+# A match lands in the SUSPICIOUS tier with its distance attached. It is never
+# a MALICIOUS verdict on its own: similarity is evidence, not identity.
+#
+# Add entries with:
+#   cau add-fuzzy --file <sample> --name "<threat name>"
+#   cau add-fuzzy --type TLSH --hash <digest> --name "<threat name>"
+#
+# This file ships empty on purpose. Real similarity signatures come from the
+# Phase 4 intake (MalwareBazaar / MISP TLSH feeds) once the corpus harness can
+# measure their false-positive rate; nothing is hand-typed in here.

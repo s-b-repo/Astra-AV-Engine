@@ -8,11 +8,22 @@ import (
 	"time"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // JSONSchemaVersion is the version of the native JSON document. See the
 // package doc for the compatibility contract.
-const JSONSchemaVersion = "1.0.0"
+//
+// 1.1.0 added the optional per-file "static" object and the summary fields
+// "static_detections" / "static_threshold" (additive: minor bump).
+//
+// 1.2.0 added the optional per-file "stego" and "fusion" objects, the
+// optional "technique" field on heuristic categories and matches, and the
+// summary fields "stego_detections", "stego_threshold" and
+// "fusion_detections" (additive: minor bump).
+const JSONSchemaVersion = "1.2.0"
 
 // Overall and per-file verdict strings carried by the JSON document. They are
 // lower-case on purpose: they are enum values for machines, not banners.
@@ -43,17 +54,24 @@ type ToolInfo struct {
 
 // Summary is the run-level roll-up.
 type Summary struct {
-	FilesScanned        int    `json:"files_scanned"`
-	HashDetections      int    `json:"hash_detections"`
-	YaraDetections      int    `json:"yara_detections"`
-	HeuristicDetections int    `json:"heuristic_detections"`
-	Errors              int    `json:"errors"`
-	ElapsedMS           int64  `json:"elapsed_ms"`
-	HeuristicThreshold  int    `json:"heuristic_threshold"`
-	Verdict             string `json:"verdict"`
-	FailOn              string `json:"fail_on"`
-	ExitCode            int    `json:"exit_code"`
-	ExitReason          string `json:"exit_reason"`
+	FilesScanned        int `json:"files_scanned"`
+	HashDetections      int `json:"hash_detections"`
+	YaraDetections      int `json:"yara_detections"`
+	HeuristicDetections int `json:"heuristic_detections"`
+	StaticDetections    int `json:"static_detections"`
+	StegoDetections     int `json:"stego_detections"`
+	// FusionDetections counts files the fusion lattice reports as suspicious
+	// although no single detector crossed its own threshold.
+	FusionDetections   int    `json:"fusion_detections"`
+	Errors             int    `json:"errors"`
+	ElapsedMS          int64  `json:"elapsed_ms"`
+	HeuristicThreshold int    `json:"heuristic_threshold"`
+	StaticThreshold    int    `json:"static_threshold"`
+	StegoThreshold     int    `json:"stego_threshold"`
+	Verdict            string `json:"verdict"`
+	FailOn             string `json:"fail_on"`
+	ExitCode           int    `json:"exit_code"`
+	ExitReason         string `json:"exit_reason"`
 }
 
 // File is one scanned path.
@@ -65,6 +83,9 @@ type File struct {
 	HashMatch  *HashMatch  `json:"hash_match,omitempty"`
 	Yara       []YaraHit   `json:"yara,omitempty"`
 	Heuristics *Heuristics `json:"heuristics,omitempty"`
+	Static     *Static     `json:"static,omitempty"`
+	Stego      *Stego      `json:"stego,omitempty"`
+	Fusion     *Fusion     `json:"fusion,omitempty"`
 	Warnings   []string    `json:"warnings,omitempty"`
 	Error      string      `json:"error,omitempty"`
 	ScanTimeMS int64       `json:"scan_time_ms"`
@@ -127,11 +148,12 @@ type Heuristics struct {
 
 // HeuristicCategory explains how one category contributed to the score.
 type HeuristicCategory struct {
-	Category string `json:"category"`
-	Raw      int    `json:"raw"`
-	Applied  int    `json:"applied"`
-	Cap      int    `json:"cap,omitempty"`
-	Weak     bool   `json:"weak,omitempty"`
+	Category  string `json:"category"`
+	Raw       int    `json:"raw"`
+	Applied   int    `json:"applied"`
+	Cap       int    `json:"cap,omitempty"`
+	Weak      bool   `json:"weak,omitempty"`
+	Technique string `json:"technique,omitempty"`
 }
 
 // HeuristicMatch is one indicator.
@@ -143,6 +165,229 @@ type HeuristicMatch struct {
 	Score     int      `json:"score,omitempty"`
 	Hits      int      `json:"hits,omitempty"`
 	Examples  []string `json:"examples,omitempty"`
+	Technique string   `json:"technique,omitempty"`
+}
+
+// Static is the per-file structural analysis: entropy, fuzzy digests, PE
+// anatomy and the labeled anomalies that scored. Every string came from the
+// scanned file and is bounded; Signature.Verified is always false because the
+// engine does not hold a trust store, and Note says so.
+type Static struct {
+	Score      int     `json:"score"`
+	Threshold  int     `json:"threshold"`
+	Detected   bool    `json:"detected"`
+	IsPE       bool    `json:"is_pe"`
+	Skipped    string  `json:"skipped,omitempty"`
+	Error      string  `json:"error,omitempty"`
+	ParseError string  `json:"parse_error,omitempty"`
+	Entropy    float64 `json:"entropy"`
+	// HighEntropyFraction is the share of 256-byte windows above 7.0 bits.
+	HighEntropyFraction float64 `json:"high_entropy_fraction"`
+	TLSH                string  `json:"tlsh,omitempty"`
+	SSDeep              string  `json:"ssdeep,omitempty"`
+	Imphash             string  `json:"imphash,omitempty"`
+
+	PE           *StaticPE          `json:"pe,omitempty"`
+	Anomalies    []StaticAnomaly    `json:"anomalies,omitempty"`
+	Categories   []StaticCategory   `json:"categories,omitempty"`
+	FuzzyMatches []StaticFuzzyMatch `json:"fuzzy_matches,omitempty"`
+	Warnings     []string           `json:"warnings,omitempty"`
+}
+
+// StaticPE is the PE anatomy summary.
+type StaticPE struct {
+	Format       string           `json:"format"`
+	Machine      string           `json:"machine"`
+	Subsystem    string           `json:"subsystem"`
+	IsDLL        bool             `json:"is_dll"`
+	IsCLR        bool             `json:"is_clr,omitempty"`
+	Timestamp    string           `json:"timestamp"`
+	EntryPoint   uint32           `json:"entry_point"`
+	EntrySection string           `json:"entry_section,omitempty"`
+	ImportCount  int              `json:"import_count"`
+	DLLs         []string         `json:"dlls,omitempty"`
+	TLSCallbacks int              `json:"tls_callbacks,omitempty"`
+	Sections     []StaticSection  `json:"sections"`
+	Overlay      *StaticOverlay   `json:"overlay,omitempty"`
+	Packer       *StaticPacker    `json:"packer,omitempty"`
+	Rich         *StaticRich      `json:"rich,omitempty"`
+	Signature    *StaticSignature `json:"signature,omitempty"`
+	Debug        *StaticDebug     `json:"debug,omitempty"`
+}
+
+// StaticSection is one section header plus its measured entropy.
+type StaticSection struct {
+	Name        string  `json:"name"`
+	Perms       string  `json:"perms"`
+	VirtualSize uint32  `json:"virtual_size"`
+	RawSize     uint32  `json:"raw_size"`
+	Entropy     float64 `json:"entropy"`
+	Entry       bool    `json:"entry,omitempty"`
+}
+
+// StaticOverlay describes data appended after the last section.
+type StaticOverlay struct {
+	Offset           int64   `json:"offset"`
+	Size             int64   `json:"size"`
+	Entropy          float64 `json:"entropy"`
+	CertificateBytes int64   `json:"certificate_bytes,omitempty"`
+}
+
+// StaticPacker names the identified packer and its evidence.
+type StaticPacker struct {
+	Name     string   `json:"name"`
+	Generic  bool     `json:"generic,omitempty"`
+	Evidence []string `json:"evidence"`
+}
+
+// StaticRich summarises the Rich header.
+type StaticRich struct {
+	ChecksumValid bool `json:"checksum_valid"`
+	Entries       int  `json:"entries"`
+}
+
+// StaticSignature is the parsed Authenticode blob.
+type StaticSignature struct {
+	Parsed             bool         `json:"parsed"`
+	Verified           bool         `json:"verified"`
+	Note               string       `json:"note"`
+	ParseError         string       `json:"parse_error,omitempty"`
+	DigestAlgorithm    string       `json:"digest_algorithm,omitempty"`
+	Signer             string       `json:"signer,omitempty"`
+	Countersigned      bool         `json:"countersigned"`
+	ChainSelfContained bool         `json:"chain_self_contained"`
+	ChainTerminus      string       `json:"chain_terminus,omitempty"`
+	Certificates       []StaticCert `json:"certificates,omitempty"`
+}
+
+// StaticCert is one embedded certificate.
+type StaticCert struct {
+	Subject     string `json:"subject"`
+	Issuer      string `json:"issuer"`
+	Serial      string `json:"serial"`
+	NotBefore   string `json:"not_before"`
+	NotAfter    string `json:"not_after"`
+	SelfSigned  bool   `json:"self_signed"`
+	CodeSigning bool   `json:"code_signing"`
+	IsCA        bool   `json:"is_ca"`
+	Signer      bool   `json:"signer,omitempty"`
+}
+
+// StaticDebug is the debug-directory summary. PDBPath is metadata only.
+type StaticDebug struct {
+	Timestamp    string `json:"timestamp,omitempty"`
+	Reproducible bool   `json:"reproducible,omitempty"`
+	PDBPath      string `json:"pdb_path,omitempty"`
+}
+
+// StaticAnomaly is one labeled structural finding.
+type StaticAnomaly struct {
+	Class     string `json:"class"`
+	Category  string `json:"category"`
+	Score     int    `json:"score"`
+	Detail    string `json:"detail"`
+	Technique string `json:"technique,omitempty"`
+}
+
+// StaticCategory explains how one category contributed to the score.
+type StaticCategory struct {
+	Category string `json:"category"`
+	Raw      int    `json:"raw"`
+	Applied  int    `json:"applied"`
+	Cap      int    `json:"cap"`
+}
+
+// StaticFuzzyMatch is a similarity-database hit.
+type StaticFuzzyMatch struct {
+	Type     string `json:"type"`
+	Hash     string `json:"hash"`
+	Threat   string `json:"threat"`
+	Distance int    `json:"distance,omitempty"`
+	Score    int    `json:"score,omitempty"`
+}
+
+// Stego is the per-file invisible-codepoint analysis of a text or code
+// artifact. Every string came from the scanned file and is bounded.
+type Stego struct {
+	Score     int    `json:"score"`
+	Threshold int    `json:"threshold"`
+	Detected  bool   `json:"detected"`
+	IsText    bool   `json:"is_text"`
+	Encoding  string `json:"encoding,omitempty"`
+	Skipped   string `json:"skipped,omitempty"`
+	Error     string `json:"error,omitempty"`
+	// Suspicious occurrences scored; Benign were excused by a context rule;
+	// Info are unscored marks (BOM, directional marks, soft hyphen).
+	Suspicious   int              `json:"suspicious"`
+	Benign       int              `json:"benign,omitempty"`
+	Info         int              `json:"info,omitempty"`
+	LongestRun   int              `json:"longest_run,omitempty"`
+	ASCIICarrier int              `json:"ascii_carrier,omitempty"`
+	Codepoints   []StegoCodepoint `json:"codepoints,omitempty"`
+	Findings     []StegoFinding   `json:"findings,omitempty"`
+}
+
+// StegoCodepoint summarises one invisible codepoint's occurrences.
+type StegoCodepoint struct {
+	Codepoint   string         `json:"codepoint"`
+	Name        string         `json:"name"`
+	Class       string         `json:"class"`
+	Count       int            `json:"count"`
+	Benign      int            `json:"benign_context,omitempty"`
+	FirstOffset int            `json:"first_offset"`
+	FirstLine   int            `json:"first_line"`
+	Excuses     map[string]int `json:"excuses,omitempty"`
+	Examples    []string       `json:"examples,omitempty"`
+}
+
+// StegoFinding is one labeled, scored class of evidence.
+type StegoFinding struct {
+	Class     string `json:"class"`
+	Score     int    `json:"score"`
+	Detail    string `json:"detail"`
+	Technique string `json:"technique,omitempty"`
+	Novel     string `json:"novel,omitempty"`
+}
+
+// Fusion is the lattice's view over every detector that ran on the file.
+type Fusion struct {
+	Tier       string  `json:"tier"`
+	Score      float64 `json:"score"`
+	Threshold  float64 `json:"threshold"`
+	Confidence string  `json:"confidence,omitempty"`
+	// Agreed names the sources that counted, strongest first; Techniques and
+	// Novel are the union of their evidence's ATT&CK / NOVEL ids.
+	Agreed     []string `json:"agreed,omitempty"`
+	Techniques []string `json:"techniques,omitempty"`
+	Novel      []string `json:"novel,omitempty"`
+	// Corroborated is true when the suspicious tier was reached only through
+	// corroboration of sub-threshold sources.
+	Corroborated bool           `json:"corroborated,omitempty"`
+	Explanation  string         `json:"explanation"`
+	Sources      []FusionSource `json:"sources"`
+}
+
+// FusionSource is one detector's line in the fused verdict.
+type FusionSource struct {
+	Name      string           `json:"name"`
+	Role      string           `json:"role"`
+	Hit       bool             `json:"hit,omitempty"`
+	Score     int              `json:"score,omitempty"`
+	Threshold int              `json:"threshold,omitempty"`
+	Ratio     float64          `json:"ratio,omitempty"`
+	Weight    float64          `json:"weight,omitempty"`
+	Counted   bool             `json:"counted"`
+	Skipped   string           `json:"skipped,omitempty"`
+	Evidence  []FusionEvidence `json:"evidence,omitempty"`
+}
+
+// FusionEvidence is one labeled reason a source contributed.
+type FusionEvidence struct {
+	Label     string `json:"label"`
+	Detail    string `json:"detail,omitempty"`
+	Technique string `json:"technique,omitempty"`
+	Novel     string `json:"novel,omitempty"`
+	Weight    int    `json:"weight,omitempty"`
 }
 
 // JSONReporter writes the native JSON document.
@@ -194,9 +439,14 @@ func (c config) buildDocument(in Input) Document {
 			HashDetections:      in.HashDetectionCount(),
 			YaraDetections:      in.YaraDetectionCount(),
 			HeuristicDetections: len(in.HeuristicBreach(c.heuristicThreshold)),
+			StaticDetections:    len(in.StaticBreach(c.staticThreshold)),
+			StegoDetections:     len(in.StegoBreach(c.stegoThreshold)),
+			FusionDetections:    len(in.FusionCorroborated()),
 			Errors:              in.ErrorCount(),
 			ElapsedMS:           in.Elapsed.Milliseconds(),
 			HeuristicThreshold:  c.heuristicThreshold,
+			StaticThreshold:     c.staticThreshold,
+			StegoThreshold:      c.stegoThreshold,
 			Verdict:             c.overallVerdict(in),
 			FailOn:              c.failOn.String(),
 			ExitCode:            code,
@@ -239,7 +489,8 @@ func (c config) overallVerdict(in Input) string {
 		return JSONVerdictError
 	case len(in.Malicious()) > 0:
 		return JSONVerdictMalicious
-	case len(in.HeuristicBreach(c.heuristicThreshold)) > 0:
+	case len(in.HeuristicBreach(c.heuristicThreshold)) > 0, len(in.StaticBreach(c.staticThreshold)) > 0,
+		len(in.StegoBreach(c.stegoThreshold)) > 0, len(in.FusionCorroborated()) > 0:
 		return JSONVerdictSuspicious
 	default:
 		return JSONVerdictClean
@@ -291,6 +542,32 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 		if isMalicious(*res) {
 			f.Verdict = JSONVerdictMalicious
 		}
+		if res.Static != nil {
+			f.Static = c.buildStatic(res.Static)
+			if f.Static.Error != "" && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictError
+			}
+			if f.Static.Detected && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
+		if res.Stego != nil {
+			f.Stego = c.buildStego(res.Stego)
+			if f.Stego.Error != "" && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictError
+			}
+			if f.Stego.Detected && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
+		if res.Fusion != nil {
+			f.Fusion = c.buildFusion(res.Fusion)
+			// The lattice never lowers a verdict; it can only raise CLEAN to
+			// SUSPICIOUS when sub-threshold sources corroborate each other.
+			if fusionCorroborated(res.Fusion) && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
 	}
 
 	if h != nil {
@@ -303,11 +580,12 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 		}
 		for _, cs := range h.Categories {
 			hh.Categories = append(hh.Categories, HeuristicCategory{
-				Category: c.boundedMessage(cs.Category),
-				Raw:      cs.Raw,
-				Applied:  cs.Applied,
-				Cap:      cs.Cap,
-				Weak:     cs.Weak,
+				Category:  c.boundedMessage(cs.Category),
+				Raw:       cs.Raw,
+				Applied:   cs.Applied,
+				Cap:       cs.Cap,
+				Weak:      cs.Weak,
+				Technique: c.boundedMessage(cs.Technique),
 			})
 		}
 		for _, m := range h.Matches {
@@ -317,6 +595,7 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 				Source:    c.boundedMessage(m.Source),
 				Score:     m.Score,
 				Hits:      m.Hits,
+				Technique: c.boundedMessage(m.Technique),
 			}
 			if m.Pattern != "" && m.Pattern != m.Indicator {
 				hm.Pattern = c.boundedMessage(m.Pattern)
@@ -339,6 +618,196 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 	}
 	return f
 }
+
+func (c config) buildStatic(s *static.Result) *Static {
+	out := &Static{
+		Score:               s.Score,
+		Threshold:           staticThresholdFor(s, c.staticThreshold),
+		Detected:            staticBreached(s, c.staticThreshold),
+		IsPE:                s.IsPE,
+		Skipped:             c.boundedMessage(s.Skipped),
+		Error:               c.errorString(s.Error),
+		ParseError:          c.boundedMessage(s.ParseError),
+		Entropy:             round3(s.Entropy),
+		HighEntropyFraction: round3(s.Profile.HighFraction),
+		TLSH:                c.boundedHash(s.Fuzzy.TLSH),
+		SSDeep:              c.boundedMessage(s.Fuzzy.SSDeep),
+		Imphash:             c.boundedHash(s.Imphash()),
+	}
+	for _, a := range s.Anomalies {
+		out.Anomalies = append(out.Anomalies, StaticAnomaly{
+			Class:     c.boundedMessage(a.Class),
+			Category:  c.boundedMessage(a.Category),
+			Score:     a.Score,
+			Detail:    c.boundedMessage(a.Detail),
+			Technique: c.boundedMessage(a.Technique),
+		})
+	}
+	for _, cs := range s.Categories {
+		out.Categories = append(out.Categories, StaticCategory{Category: c.boundedMessage(cs.Category), Raw: cs.Raw, Applied: cs.Applied, Cap: cs.Cap})
+	}
+	for _, m := range s.FuzzyMatches {
+		out.FuzzyMatches = append(out.FuzzyMatches, StaticFuzzyMatch{
+			Type: c.boundedMessage(m.Type), Hash: c.boundedMessage(m.Hash), Threat: c.boundedMessage(m.ThreatName),
+			Distance: m.Distance, Score: m.Score,
+		})
+	}
+	p := s.PE
+	if p == nil {
+		return out
+	}
+	for _, w := range p.Warnings {
+		out.Warnings = append(out.Warnings, c.boundedMessage(w))
+	}
+	pe := &StaticPE{
+		Format:       p.Format,
+		Machine:      c.boundedMessage(p.MachineName),
+		Subsystem:    c.boundedMessage(p.SubsystemName),
+		IsDLL:        p.IsDLL,
+		IsCLR:        p.IsCLR,
+		Timestamp:    p.TimestampTime().Format(time.RFC3339),
+		EntryPoint:   p.EntryPoint,
+		EntrySection: c.boundedMessage(p.EntrySection),
+		ImportCount:  p.ImportCount,
+		TLSCallbacks: p.TLSCallbacks,
+		Sections:     []StaticSection{},
+	}
+	for _, d := range p.DLLNames() {
+		pe.DLLs = append(pe.DLLs, c.boundedMessage(d))
+	}
+	for _, sec := range p.Sections {
+		pe.Sections = append(pe.Sections, StaticSection{
+			Name: c.boundedMessage(sec.Name), Perms: sec.Perms, VirtualSize: sec.VirtualSize,
+			RawSize: sec.RawSize, Entropy: round3(sec.Entropy), Entry: sec.Entry,
+		})
+	}
+	if p.Overlay.Size > 0 || p.Overlay.CertificateBytes > 0 {
+		pe.Overlay = &StaticOverlay{Offset: p.Overlay.Offset, Size: p.Overlay.Size, Entropy: round3(p.Overlay.Entropy), CertificateBytes: p.Overlay.CertificateBytes}
+	}
+	if pk := p.Packer; pk != nil {
+		sp := &StaticPacker{Name: c.boundedMessage(pk.Name), Generic: pk.Generic, Evidence: []string{}}
+		for _, e := range pk.Evidence {
+			sp.Evidence = append(sp.Evidence, c.boundedMessage(e))
+		}
+		pe.Packer = sp
+	}
+	if p.Rich != nil {
+		pe.Rich = &StaticRich{ChecksumValid: p.Rich.ChecksumValid, Entries: len(p.Rich.Entries)}
+	}
+	if a := p.Authenticode; a != nil {
+		sig := &StaticSignature{
+			Parsed:             a.Parsed,
+			Verified:           a.Verified,
+			Note:               a.Note,
+			ParseError:         c.boundedMessage(a.ParseErr),
+			DigestAlgorithm:    c.boundedMessage(a.DigestAlg),
+			Signer:             c.boundedMessage(a.SignerSubject),
+			Countersigned:      a.Countersigned,
+			ChainSelfContained: a.ChainSelfContained,
+			ChainTerminus:      c.boundedMessage(a.ChainTerminus),
+		}
+		for _, cert := range a.Certificates {
+			sig.Certificates = append(sig.Certificates, StaticCert{
+				Subject: c.boundedMessage(cert.Subject), Issuer: c.boundedMessage(cert.Issuer), Serial: c.boundedHash(cert.Serial),
+				NotBefore: cert.NotBefore.Format(time.RFC3339), NotAfter: cert.NotAfter.Format(time.RFC3339),
+				SelfSigned: cert.SelfSigned, CodeSigning: cert.CodeSigning, IsCA: cert.IsCA, Signer: cert.Signer,
+			})
+		}
+		pe.Signature = sig
+	}
+	if p.Debug.Present {
+		d := &StaticDebug{Reproducible: p.Debug.Reproducible, PDBPath: c.boundedMessage(p.Debug.PDBPath)}
+		if p.Debug.Timestamp != 0 {
+			d.Timestamp = time.Unix(int64(p.Debug.Timestamp), 0).UTC().Format(time.RFC3339)
+		}
+		pe.Debug = d
+	}
+	out.PE = pe
+	return out
+}
+
+func (c config) buildStego(s *stego.Result) *Stego {
+	out := &Stego{
+		Score:        s.Score,
+		Threshold:    stegoThresholdFor(s, c.stegoThreshold),
+		Detected:     stegoBreached(s, c.stegoThreshold),
+		IsText:       s.IsText,
+		Encoding:     c.boundedMessage(s.Encoding),
+		Skipped:      c.boundedMessage(s.Skipped),
+		Error:        c.errorString(s.Error),
+		Suspicious:   s.Suspicious,
+		Benign:       s.Benign,
+		Info:         s.Info,
+		LongestRun:   s.LongestRun,
+		ASCIICarrier: s.ASCIICarrier,
+	}
+	for _, cp := range s.Codepoints {
+		sc := StegoCodepoint{
+			Codepoint:   c.boundedMessage(cp.Code),
+			Name:        c.boundedMessage(cp.Name),
+			Class:       c.boundedMessage(cp.Class),
+			Count:       cp.Count,
+			Benign:      cp.Benign,
+			FirstOffset: cp.FirstOffset,
+			FirstLine:   cp.FirstLine,
+		}
+		if len(cp.Excuses) > 0 {
+			sc.Excuses = make(map[string]int, len(cp.Excuses))
+			for k, v := range cp.Excuses {
+				sc.Excuses[c.boundedMessage(k)] = v
+			}
+		}
+		for _, ex := range cp.Examples {
+			sc.Examples = append(sc.Examples, c.boundedMessage(ex))
+		}
+		out.Codepoints = append(out.Codepoints, sc)
+	}
+	for _, f := range s.Findings {
+		out.Findings = append(out.Findings, StegoFinding{
+			Class: c.boundedMessage(f.Class), Score: f.Score, Detail: c.boundedMessage(f.Detail),
+			Technique: c.boundedMessage(f.Technique), Novel: c.boundedMessage(f.Novel),
+		})
+	}
+	return out
+}
+
+func (c config) buildFusion(v *fusion.Verdict) *Fusion {
+	out := &Fusion{
+		Tier:         string(v.Tier),
+		Score:        v.Score,
+		Threshold:    v.Threshold,
+		Confidence:   v.Confidence,
+		Corroborated: v.Corroborated,
+		Explanation:  c.boundedMessage(v.Explanation),
+		Sources:      []FusionSource{},
+	}
+	for _, a := range v.Agreed {
+		out.Agreed = append(out.Agreed, c.boundedMessage(a))
+	}
+	for _, t := range v.Techniques {
+		out.Techniques = append(out.Techniques, c.boundedMessage(t))
+	}
+	for _, n := range v.Novel {
+		out.Novel = append(out.Novel, c.boundedMessage(n))
+	}
+	for _, s := range v.Sources {
+		fs := FusionSource{
+			Name: c.boundedMessage(s.Name), Role: string(s.Role), Hit: s.Hit, Score: s.Score, Threshold: s.Threshold,
+			Ratio: round3(s.Ratio), Weight: s.Weight, Counted: s.Counted, Skipped: c.boundedMessage(s.Skipped),
+		}
+		for _, e := range s.Evidence {
+			fs.Evidence = append(fs.Evidence, FusionEvidence{
+				Label: c.boundedMessage(e.Label), Detail: c.boundedMessage(e.Detail),
+				Technique: c.boundedMessage(e.Technique), Novel: c.boundedMessage(e.Novel), Weight: e.Weight,
+			})
+		}
+		out.Sources = append(out.Sources, fs)
+	}
+	return out
+}
+
+// round3 keeps floating-point fields readable and stable across platforms.
+func round3(f float64) float64 { return float64(int64(f*1000+0.5)) / 1000 }
 
 func (c config) buildYara(m scanner.YaraMatch) YaraHit {
 	hit := YaraHit{

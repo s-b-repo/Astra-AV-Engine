@@ -15,6 +15,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/static"
+	"github.com/cau-edr/cau/scanner/stego"
 )
 
 // Verdict represents the outcome of a file scan.
@@ -49,6 +53,23 @@ type ScanResult struct {
 	// Warnings records non-fatal problems (a YARA scan that timed out after
 	// collecting some matches, for example). They never change the verdict.
 	Warnings []string
+
+	// Static is the structural analysis (entropy, fuzzy hashes, PE anatomy,
+	// anomalies), nil when the engine ran without it. Like heuristics it
+	// produces a score against a threshold, not a verdict: a breach is the
+	// SUSPICIOUS tier, never MALICIOUS.
+	Static *static.Result
+
+	// Stego is the invisible-codepoint analysis of text and code artifacts
+	// (zero-width steganography, Trojan Source bidi controls), nil when the
+	// engine ran without it. A breach is the SUSPICIOUS tier.
+	Stego *stego.Result
+
+	// Fusion is the lattice's view over every detector that ran: which
+	// sources agreed, how strongly, and what techniques the agreeing evidence
+	// carries. nil when no detector was configured. It can be SUSPICIOUS when
+	// no single detector crossed its own threshold (Fusion.Corroborated).
+	Fusion *fusion.Verdict
 
 	Verdict  Verdict
 	ScanTime time.Duration
