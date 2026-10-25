@@ -42,7 +42,8 @@ cut a tagged release yet, so everything is under Unreleased.
 
 ### Changed
 - Remaining "Astra" naming in the plan, layout and ignore rules renamed to
-  CAU; only the historical origin and the GitHub repository name keep it.
+  CAU, and the GitHub repository is renamed to `s-b-repo/cau` (the old name
+  redirects); only the historical origin keeps the Astra name.
 - YARA runs in-process through go-yara with a per-scan timeout; rules are
   compiled once; rule meta, namespaces and warnings are kept.
 - Heuristics score once per pattern with category caps and a weak-category

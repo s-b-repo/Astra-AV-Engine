@@ -244,7 +244,7 @@ score, which offset), `yara_test_rule` (against corpus, returns FP/FN), `generat
   canonical EU sync protocol (see intake table)
 - [ ] Release-channel hash updates: `cau update` fetches the latest signed
   `signatures/hashes.txt` asset from GitHub Releases on a pinned repo
-  (`s-b-repo/Astra-AV-Engine`), and the CI release job publishes that asset per tag.
+  (`s-b-repo/cau`), and the CI release job publishes that asset per tag.
   Verification is fail-closed: detached signature checked against the package-pinned key
   (Phase 7 #1) before install, DB version and min-engine-version parsed, atomically
   replaces the live DB with a rollback copy. Never phones home silently at startup —

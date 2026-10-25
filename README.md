@@ -1,6 +1,6 @@
 # CAU EDR — Certs Are Useless
 
-[![ci](https://github.com/s-b-repo/Astra-AV-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/s-b-repo/Astra-AV-Engine/actions/workflows/ci.yml)
+[![ci](https://github.com/s-b-repo/cau/actions/workflows/ci.yml/badge.svg)](https://github.com/s-b-repo/cau/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/badge/go-1.24+-00ADD8?logo=go)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -34,7 +34,7 @@ corroborate each other, and never lowers anything.
 
 ```sh
 sudo apt install golang-go libyara-dev pkg-config build-essential   # or: brew install go yara pkg-config
-git clone https://github.com/s-b-repo/Astra-AV-Engine.git cau && cd cau
+git clone https://github.com/s-b-repo/cau.git cau && cd cau
 make build
 ./cau scan --file corpus/smoke/malicious/mimikatz_strings.bin --db corpus/smoke/hashes.txt
 ```

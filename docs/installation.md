@@ -24,7 +24,7 @@ brew install go yara pkg-config
 ## Build from source
 
 ```sh
-git clone https://github.com/s-b-repo/Astra-AV-Engine.git cau
+git clone https://github.com/s-b-repo/cau.git cau
 cd cau
 make build          # -> ./cau
 ./cau version
