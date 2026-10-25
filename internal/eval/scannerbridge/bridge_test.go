@@ -35,7 +35,7 @@ func loadEngine(t *testing.T) ([]eval.Detector, *eval.Manifest) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ys.Close() })
-	return append(Engine(db, ys, 0), StegoDetector(0)), m
+	return append(Engine(db, ys, 0), StaticDetector(0, nil), StegoDetector(0)), m
 }
 
 func TestEngineOnSmokeCorpus(t *testing.T) {
@@ -58,7 +58,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 	if len(rep.Errors) != 0 {
 		t.Errorf("errors: %+v", rep.Errors)
 	}
-	if rep.Totals != (eval.Counts{TP: 6, TN: 9}) {
+	if rep.Totals != (eval.Counts{TP: 7, TN: 10}) {
 		t.Errorf("totals = %s", rep.Totals)
 	}
 
@@ -69,7 +69,8 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 			t.Errorf("rule %s fired on benign samples: %v", rs.Rule, rs.FalsePositivePaths)
 		}
 	}
-	for _, want := range []string{"wannacry_ransomware", "mimikatz_strings", "lokibot_stealer", "generic_ransomware_extensions", "Smoke_Hash Synthetic Sample", "stego/zero-width"} {
+	for _, want := range []string{"wannacry_ransomware", "mimikatz_strings", "lokibot_stealer", "generic_ransomware_extensions", "Smoke_Hash Synthetic Sample", "stego/zero-width",
+		"static/segment.rwx", "static/dynamic.interp-unusual", "static/imports.loader-only"} {
 		if !fired[want] {
 			t.Errorf("rule %q did not fire; fired: %v", want, fired)
 		}
@@ -88,10 +89,16 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 			if d.Counts.FP != 0 {
 				t.Errorf("heuristic detector flagged benign files: %+v", d)
 			}
+		case eval.DetectorStatic:
+			// The ELF dropper profile is the structural pass's own true
+			// positive: nothing else in the corpus sees it.
+			if d.Counts.TP != 1 || d.Exclusive != 1 || d.Counts.FP != 0 {
+				t.Errorf("static detector: %+v", d)
+			}
 		}
 	}
 	// Per-family breakdown is populated from the manifest families.
-	if len(rep.ByFamily) != 6 {
+	if len(rep.ByFamily) != 7 {
 		t.Errorf("families = %+v", rep.ByFamily)
 	}
 }

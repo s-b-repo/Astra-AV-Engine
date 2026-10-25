@@ -7,6 +7,30 @@ cut a tagged release yet, so everything is under Unreleased.
 ## Unreleased
 
 ### Added
+- **ELF structural pass** (`scanner/static`): own bounds-checked ELF parser
+  (32- and 64-bit, both byte orders; executables, shared objects, relocatable
+  objects and kernel modules) reading segments, sections, the dynamic table,
+  dynamic or `.symtab` symbols, notes, `.modinfo` and the appended module
+  signature, overlay, UPX markers and the generic packed profile, and an
+  import-set hash for clustering. Labeled anomaly classes for RWX and packed
+  segments, stripped or invalid section tables, entry-point placement,
+  executable stacks, non-system program interpreters, insecure
+  `RPATH`/`RUNPATH`, text relocations, `DT_INIT` outside code,
+  LD_PRELOAD-style libc interposers (known interposers named at weight 0),
+  loader-only imports, unsigned or `modinfo`-less kernel modules and
+  malformed tables. Rendered in text, JSON (`is_elf`, `static.elf`,
+  `static.import_hash`; schema 1.3.0) and SARIF (`import_hash`, `interp`,
+  `packer` properties); `cau hash` and `cau cluster` accept ELF. Measured: 0
+  detections on 4,974 ELF files and 40 kernel modules from a Kali install.
+- Heuristics read ELF imports (undefined dynamic symbols, or a kernel
+  module's undefined `.symtab`) through the same indicator table, with a
+  small Linux set (`ptrace`, `process_vm_readv`/`writev`, `pidfd_getfd` as
+  injection) and a **Kernel Rootkit** category (T1014: `kallsyms_lookup_name`,
+  kprobe and ftrace registration, `set_memory_rw`, `text_poke`,
+  `sys_call_table`). `HeuristicResult.IsELF`; `is_elf` in JSON.
+- Smoke corpus: two synthetic ELF fixtures (a clean PIE and a dropper
+  profile) written byte-for-byte by `TestWriteELFFixtures`; baseline
+  re-recorded with the `static` detector's first true positive.
 - Documentation set under `docs/` (installation, CLI reference, detectors,
   output formats, detection content, evaluation, library usage, architecture,
   limitations, contributing); the README is now the landing page.

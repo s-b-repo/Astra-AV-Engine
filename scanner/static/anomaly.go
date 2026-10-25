@@ -57,6 +57,8 @@ var categoryCaps = map[string]int{
 	CatFormat:    3,
 	CatFuzzy:     8,
 	CatInfo:      0,
+	CatDynamic:   4,
+	CatModule:    3,
 }
 
 // DefaultThreshold is the shipped score at which a file's structure is

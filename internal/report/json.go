@@ -23,7 +23,11 @@ import (
 // optional "technique" field on heuristic categories and matches, and the
 // summary fields "stego_detections", "stego_threshold" and
 // "fusion_detections" (additive: minor bump).
-const JSONSchemaVersion = "1.2.0"
+//
+// 1.3.0 added "is_elf" on the heuristic and static objects, the optional
+// static "elf" object (ELF anatomy) and the optional static "import_hash"
+// (additive: minor bump).
+const JSONSchemaVersion = "1.3.0"
 
 // Overall and per-file verdict strings carried by the JSON document. They are
 // lower-case on purpose: they are enum values for machines, not banners.
@@ -140,6 +144,7 @@ type Heuristics struct {
 	Threshold  int                 `json:"threshold"`
 	Detected   bool                `json:"detected"`
 	IsPE       bool                `json:"is_pe"`
+	IsELF      bool                `json:"is_elf"`
 	Skipped    string              `json:"skipped,omitempty"`
 	Categories []HeuristicCategory `json:"categories,omitempty"`
 	Matches    []HeuristicMatch    `json:"matches,omitempty"`
@@ -168,15 +173,16 @@ type HeuristicMatch struct {
 	Technique string   `json:"technique,omitempty"`
 }
 
-// Static is the per-file structural analysis: entropy, fuzzy digests, PE
-// anatomy and the labeled anomalies that scored. Every string came from the
-// scanned file and is bounded; Signature.Verified is always false because the
-// engine does not hold a trust store, and Note says so.
+// Static is the per-file structural analysis: entropy, fuzzy digests, PE or
+// ELF anatomy and the labeled anomalies that scored. Every string came from
+// the scanned file and is bounded; Signature.Verified is always false because
+// the engine does not hold a trust store, and Note says so.
 type Static struct {
 	Score      int     `json:"score"`
 	Threshold  int     `json:"threshold"`
 	Detected   bool    `json:"detected"`
 	IsPE       bool    `json:"is_pe"`
+	IsELF      bool    `json:"is_elf"`
 	Skipped    string  `json:"skipped,omitempty"`
 	Error      string  `json:"error,omitempty"`
 	ParseError string  `json:"parse_error,omitempty"`
@@ -186,8 +192,13 @@ type Static struct {
 	TLSH                string  `json:"tlsh,omitempty"`
 	SSDeep              string  `json:"ssdeep,omitempty"`
 	Imphash             string  `json:"imphash,omitempty"`
+	// ImportHash is the import-set clustering key of an ELF (MD5 over the
+	// sorted undefined symbol names; a CAU key, not telfhash). PE files carry
+	// the pefile-compatible imphash instead.
+	ImportHash string `json:"import_hash,omitempty"`
 
 	PE           *StaticPE          `json:"pe,omitempty"`
+	ELF          *StaticELF         `json:"elf,omitempty"`
 	Anomalies    []StaticAnomaly    `json:"anomalies,omitempty"`
 	Categories   []StaticCategory   `json:"categories,omitempty"`
 	FuzzyMatches []StaticFuzzyMatch `json:"fuzzy_matches,omitempty"`
@@ -213,6 +224,72 @@ type StaticPE struct {
 	Rich         *StaticRich      `json:"rich,omitempty"`
 	Signature    *StaticSignature `json:"signature,omitempty"`
 	Debug        *StaticDebug     `json:"debug,omitempty"`
+}
+
+// StaticELF is the ELF anatomy summary. Module.Signed reports the presence
+// of the appended signature only; nothing is verified against a keyring.
+type StaticELF struct {
+	Class            string             `json:"class"`
+	ByteOrder        string             `json:"byte_order"`
+	Type             string             `json:"type"`
+	Machine          string             `json:"machine"`
+	OSABI            string             `json:"osabi"`
+	EntryPoint       uint64             `json:"entry_point"`
+	EntrySection     string             `json:"entry_section,omitempty"`
+	Interp           string             `json:"interp,omitempty"`
+	PIE              bool               `json:"pie"`
+	Static           bool               `json:"static"`
+	StackExecutable  bool               `json:"stack_executable"`
+	RelRO            bool               `json:"relro"`
+	TextRel          bool               `json:"textrel,omitempty"`
+	BuildID          string             `json:"build_id,omitempty"`
+	ABITag           string             `json:"abi_tag,omitempty"`
+	SOName           string             `json:"soname,omitempty"`
+	Needed           []string           `json:"needed,omitempty"`
+	RPath            []string           `json:"rpath,omitempty"`
+	RunPath          []string           `json:"runpath,omitempty"`
+	ImportCount      int                `json:"import_count"`
+	ExportCount      int                `json:"export_count"`
+	InitArrayCount   int                `json:"init_array_count,omitempty"`
+	Segments         []StaticELFSegment `json:"segments"`
+	Sections         []StaticELFSection `json:"sections"`
+	NoSectionHeaders bool               `json:"no_section_headers,omitempty"`
+	Overlay          *StaticOverlay     `json:"overlay,omitempty"`
+	Packer           *StaticPacker      `json:"packer,omitempty"`
+	Module           *StaticELFModule   `json:"module,omitempty"`
+	AppImage         int                `json:"appimage,omitempty"`
+}
+
+// StaticELFSegment is one program header plus its measured entropy.
+type StaticELFSegment struct {
+	Type     string  `json:"type"`
+	Perms    string  `json:"perms"`
+	Offset   uint64  `json:"offset"`
+	FileSize uint64  `json:"file_size"`
+	MemSize  uint64  `json:"mem_size"`
+	Entropy  float64 `json:"entropy"`
+	Entry    bool    `json:"entry,omitempty"`
+}
+
+// StaticELFSection is one section header plus its measured entropy.
+type StaticELFSection struct {
+	Name    string  `json:"name"`
+	Type    string  `json:"type"`
+	Perms   string  `json:"perms"`
+	Size    uint64  `json:"size"`
+	Entropy float64 `json:"entropy"`
+	Entry   bool    `json:"entry,omitempty"`
+}
+
+// StaticELFModule is what a kernel module declares about itself.
+type StaticELFModule struct {
+	Name           string `json:"name,omitempty"`
+	Vermagic       string `json:"vermagic,omitempty"`
+	License        string `json:"license,omitempty"`
+	SrcVersion     string `json:"srcversion,omitempty"`
+	Signed         bool   `json:"signed"`
+	SignatureBytes int    `json:"signature_bytes,omitempty"`
+	Note           string `json:"note"`
 }
 
 // StaticSection is one section header plus its measured entropy.
@@ -576,6 +653,7 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 			Threshold: thresholdFor(*h, c.heuristicThreshold),
 			Detected:  heuristicBreached(*h, c.heuristicThreshold),
 			IsPE:      h.IsPE,
+			IsELF:     h.IsELF,
 			Skipped:   c.boundedMessage(h.Skipped),
 		}
 		for _, cs := range h.Categories {
@@ -625,6 +703,7 @@ func (c config) buildStatic(s *static.Result) *Static {
 		Threshold:           staticThresholdFor(s, c.staticThreshold),
 		Detected:            staticBreached(s, c.staticThreshold),
 		IsPE:                s.IsPE,
+		IsELF:               s.IsELF,
 		Skipped:             c.boundedMessage(s.Skipped),
 		Error:               c.errorString(s.Error),
 		ParseError:          c.boundedMessage(s.ParseError),
@@ -651,6 +730,13 @@ func (c config) buildStatic(s *static.Result) *Static {
 			Type: c.boundedMessage(m.Type), Hash: c.boundedMessage(m.Hash), Threat: c.boundedMessage(m.ThreatName),
 			Distance: m.Distance, Score: m.Score,
 		})
+	}
+	if e := s.ELF; e != nil {
+		out.ImportHash = c.boundedHash(e.ImportHash)
+		out.ELF = c.buildStaticELF(e)
+		for _, w := range e.Warnings {
+			out.Warnings = append(out.Warnings, c.boundedMessage(w))
+		}
 	}
 	p := s.PE
 	if p == nil {
@@ -723,6 +809,73 @@ func (c config) buildStatic(s *static.Result) *Static {
 		pe.Debug = d
 	}
 	out.PE = pe
+	return out
+}
+
+func (c config) buildStaticELF(e *static.ELF) *StaticELF {
+	out := &StaticELF{
+		Class:            e.Class,
+		ByteOrder:        e.ByteOrder,
+		Type:             c.boundedMessage(e.TypeName),
+		Machine:          c.boundedMessage(e.MachineName),
+		OSABI:            c.boundedMessage(e.OSABIName),
+		EntryPoint:       e.Entry,
+		EntrySection:     c.boundedMessage(e.EntrySection),
+		Interp:           c.boundedMessage(e.Interp),
+		PIE:              e.IsPIE,
+		Static:           e.Static,
+		StackExecutable:  e.StackExecutable,
+		RelRO:            e.RelRO,
+		TextRel:          e.TextRel,
+		BuildID:          c.boundedHash(e.BuildID),
+		ABITag:           c.boundedMessage(e.ABITag),
+		SOName:           c.boundedMessage(e.SOName),
+		ImportCount:      e.ImportCount,
+		ExportCount:      e.ExportCount,
+		InitArrayCount:   e.InitArrayCount,
+		Segments:         []StaticELFSegment{},
+		Sections:         []StaticELFSection{},
+		NoSectionHeaders: e.NoSectionHeaders,
+		AppImage:         e.AppImage,
+	}
+	for _, n := range e.Needed {
+		out.Needed = append(out.Needed, c.boundedMessage(n))
+	}
+	for _, p := range e.RPath {
+		out.RPath = append(out.RPath, c.boundedMessage(p))
+	}
+	for _, p := range e.RunPath {
+		out.RunPath = append(out.RunPath, c.boundedMessage(p))
+	}
+	for _, s := range e.Segments {
+		out.Segments = append(out.Segments, StaticELFSegment{
+			Type: c.boundedMessage(s.Type), Perms: s.Perms, Offset: s.Offset, FileSize: s.FileSize, MemSize: s.MemSize,
+			Entropy: round3(s.Entropy), Entry: s.Entry,
+		})
+	}
+	for _, s := range e.Sections {
+		out.Sections = append(out.Sections, StaticELFSection{
+			Name: c.boundedMessage(s.Name), Type: c.boundedMessage(s.TypeName), Perms: s.Perms, Size: s.Size,
+			Entropy: round3(s.Entropy), Entry: s.Entry,
+		})
+	}
+	if e.Overlay.Size > 0 || e.Overlay.CertificateBytes > 0 {
+		out.Overlay = &StaticOverlay{Offset: e.Overlay.Offset, Size: e.Overlay.Size, Entropy: round3(e.Overlay.Entropy), CertificateBytes: e.Overlay.CertificateBytes}
+	}
+	if pk := e.Packer; pk != nil {
+		sp := &StaticPacker{Name: c.boundedMessage(pk.Name), Generic: pk.Generic, Evidence: []string{}}
+		for _, ev := range pk.Evidence {
+			sp.Evidence = append(sp.Evidence, c.boundedMessage(ev))
+		}
+		out.Packer = sp
+	}
+	if m := e.Module; m != nil {
+		out.Module = &StaticELFModule{
+			Name: c.boundedMessage(m.Name), Vermagic: c.boundedMessage(m.Vermagic), License: c.boundedMessage(m.License),
+			SrcVersion: c.boundedMessage(m.SrcVersion), Signed: m.Signed, SignatureBytes: m.SignatureBytes,
+			Note: "signature presence only; not verified against the kernel keyring",
+		}
+	}
 	return out
 }
 

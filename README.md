@@ -22,7 +22,7 @@ cau scan ./build --format json --fail-on heuristic                   # fail CI o
 | **Hash signatures** | is this exact content known? | MALICIOUS with the threat name |
 | **YARA** (in-process libyara, per-file timeout) | does it contain patterns a rule describes? | MALICIOUS with rule, namespace, meta and matched strings at their offsets |
 | **Heuristics** | does it name suspicious capabilities? | SUSPICIOUS with a capped score, the categories responsible and their ATT&CK techniques |
-| **Static structure** (own PE parser, entropy, TLSH / ssdeep / imphash) | is it *built* like something that hides? | SUSPICIOUS with labeled anomaly classes: packer, RWX sections, forged build record, implausible signer, appended payload, similarity to a known sample |
+| **Static structure** (own PE and ELF parsers, entropy, TLSH / ssdeep / imphash) | is it *built* like something that hides? | SUSPICIOUS with labeled anomaly classes: packer, RWX sections or segments, forged build record, implausible signer, appended payload, stripped section table, non-system program interpreter, writable `RPATH`, libc interposer, unsigned kernel module, similarity to a known sample |
 | **Invisible codepoints** | does this text or code carry hidden codepoints? | SUSPICIOUS with every zero-width, bidi-override, TAG or variation-selector codepoint, its line, and the context rules that excused the rest |
 | **Fusion** | do several detectors agree, even below their own thresholds? | one fused verdict naming the sources that agreed, their roles and techniques |
 
@@ -74,7 +74,7 @@ failed, 4 usage.
 | [Installation](docs/installation.md) | requirements, build, install, release tarballs, resource discovery |
 | [Command-line reference](docs/cli.md) | every command and flag, exit codes, CI recipes |
 | [Detectors](docs/detectors.md) | how each detector scores, its classes and techniques, and the numbers it was tuned on |
-| [Output formats](docs/output-formats.md) | the text report, JSON schema 1.2.0, SARIF 2.1.0 rule ids, the exit policy |
+| [Output formats](docs/output-formats.md) | the text report, JSON schema 1.3.0, SARIF 2.1.0 rule ids, the exit policy |
 | [Detection content](docs/detection-content.md) | signature databases, YARA conventions, the fuzzy-hash database |
 | [Evaluation harness](docs/evaluation.md) | corpora, baselines, regression gates, every measurement behind the docs |
 | [Library usage](docs/library.md) | using the engine and the fusion lattice from Go |
@@ -89,6 +89,7 @@ failed, 4 usage.
 |---|---|---|
 | heuristics stay quiet on real tools | 349 files, Kali's Windows tool set | detections 60 → 28 after the rescoring; credential dumpers and injectors still detected |
 | static structure does not flag packed benign tools | 49 PE files in the same set | 43 score 0, nothing crosses the threshold, UPX and ASPack named below it |
+| static structure stays quiet on a Linux system | 4,974 ELF files under Kali's `/usr/bin`, `/usr/sbin`, `/usr/lib/x86_64-linux-gnu`, `/usr/libexec`, `/usr/lib/systemd`; 40 kernel modules | 0 cross the threshold, 21 carry one weight-1 observation, every module scores 0, a UPX-packed `ls` scores 6 with the packer named |
 | invisible-codepoint pass is usable on real text | 70,102 benign text artifacts | 0.10 % false positives, 348 legitimate uses excused by named rules |
 | fusion adds no false positives | 349 files | 0 fused-only detections, 0 new false positives |
 | nothing regresses silently | `corpus/smoke` on every push | 100 % recall, 0 false positives, gated in CI against the committed baseline |

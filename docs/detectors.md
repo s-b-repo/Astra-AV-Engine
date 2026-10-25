@@ -108,6 +108,17 @@ carried into fused verdicts:
 | Sandbox Detection | 3 | T1497.001 |
 | Unix Shell Reference (weak) | 4 | T1059.004 |
 | Download Tool Reference (weak) | 4 | T1105 |
+| Kernel Rootkit | 6 | T1014 |
+
+Import names come from the PE import table or, for ELF, the undefined dynamic
+symbols (a kernel module's undefined `.symtab` entries). The Linux entries
+are few on purpose, because an ELF import table names libc and libc is not
+evidence: `ptrace`, `process_vm_readv` / `process_vm_writev` and
+`pidfd_getfd` score as injection (`sudo`, `strace` and `gdb` import them
+legitimately and stay below the threshold), and Kernel Rootkit holds what a
+module needs to find and patch kernel text (`kallsyms_lookup_name`,
+`register_kprobe`, `ftrace_set_filter_ip`, `set_memory_rw`, `text_poke`,
+`sys_call_table`), which no ordinary driver imports.
 
 The indicator tables are in `scanner/heuristics.go`; `scanner.Categories()`
 returns this table programmatically.
@@ -115,7 +126,9 @@ returns this table programmatically.
 ## Static structure
 
 `scanner/static` asks whether a file is built like something that is hiding.
-It runs on every file type; the PE parts run on PE images.
+It runs on every file type; the PE parts run on PE images and the ELF parts
+on ELF images (32- and 64-bit, both byte orders: executables, shared objects,
+relocatable objects and kernel modules).
 
 - **Entropy**: whole-file Shannon entropy plus a 256-byte sliding window, so
   a compressed tail inside an otherwise ordinary file shows as a high-entropy
@@ -132,12 +145,23 @@ It runs on every file type; the PE parts run on PE images.
   exports, debug directory and PDB path (metadata only, never scored), TLS
   callbacks, overlay with the certificate table separated out, the Rich header
   with its checksum, and the Authenticode certificate chain.
+- **ELF anatomy** from an own parser under the same rule (`debug/elf` trusts
+  header counts and allocates what they declare): program headers with
+  permissions and entropy, section headers with the stripped and
+  pointing-outside-the-file cases named, `PT_INTERP`, the dynamic table
+  (`DT_NEEDED`, `SONAME`, `RPATH` / `RUNPATH`, `DT_INIT`, text relocations,
+  PIE and bind-now flags), undefined and defined dynamic symbols (a
+  relocatable object's `.symtab` instead), GNU build-id and ABI notes,
+  `.modinfo` and the appended kernel-module signature, overlay with the
+  signature separated out, AppImage magic, UPX markers, and an import-set
+  hash for clustering (MD5 over the sorted undefined symbol names; a CAU key,
+  not telfhash).
 
 Findings are labeled **anomaly classes**, each with a weight, a category and
 an ATT&CK technique where one applies. Categories are capped (Sections 5,
 Entry Point 4, Headers 3, Imports 3, Packer 4, Signature 8, Overlay 2,
-Format 3, Similarity 8) and the threshold is 8, so several independent things
-must be wrong at once.
+Format 3, Similarity 8; for ELF also Dynamic Linking 4 and Kernel Module 3)
+and the threshold is 8, so several independent things must be wrong at once.
 
 | Class | Weight | Meaning |
 |---|---|---|
@@ -159,6 +183,27 @@ must be wrong at once.
 | `format.truncated`, `.section-overlap`, `.no-sections`, `.unparseable` | 2 each | malformed images |
 | `fuzzy.tlsh`, `fuzzy.ssdeep`, `fuzzy.imphash` | 8, 5–8, 4 | similarity to a database entry |
 
+ELF classes (the shared names above keep their weights; `segment.*` is the
+`PT_LOAD` view):
+
+| Class | Weight | Meaning |
+|---|---|---|
+| `segment.rwx` | 3 | writable and executable `PT_LOAD` (T1027.009) |
+| `segment.exec-high-entropy`, `segment.virtual-raw-mismatch` | 2, 2 | executable segment above 7.0 bits/byte; executable segment far larger in memory than on disk (T1027, T1027.002) |
+| `section.headers-missing` | 2 | no section table at all: sstrip, a packer or a hand-built loader (T1027.002) |
+| `section.name-perm-mismatch`, `section.exec-unusual-name` | 2, 1 | as for PE; the kernel's own executable section names and `.text.*` are exempt |
+| `entrypoint.zero`, `.outside-segments`, `.non-exec-segment`, `.outside-sections`, `.non-exec-section` | 2, 3, 2, 2, 2 | where the entry point lands |
+| `segment.exec-stack`, `segment.no-gnu-stack` | 2, 1 | `PT_GNU_STACK` requests an executable stack, or is absent from a dynamically linked image |
+| `dynamic.interp-unusual` | 2 | program interpreter outside the system loader directories or not named like a loader (T1574) |
+| `dynamic.rpath-insecure` | 2 | `RPATH` / `RUNPATH` with a relative or empty component, or under `/tmp`, `/dev/shm`, `/home` and the like (T1574); `$ORIGIN` idioms are informational |
+| `dynamic.needed-path`, `dynamic.textrel`, `dynamic.init-outside-code` | 1, 1, 2 | dependency named by path; text relocations; `DT_INIT` outside executable memory (T1574, T1027) |
+| `dynamic.preload-interposer` | 3 | a shared object that defines two or more of the libc entry points preload rootkits replace (`readdir`, `open`, `stat`, `accept`, `execve`, `ptrace`, ...) and imports `dlsym` to reach the originals (T1574.006); sanitizer runtimes, fakeroot, `libeatmydata`, sudo's noexec shims and other known interposers are reported at weight 0 under `-known` |
+| `imports.none`, `.loader-only`, `.minimal` | 2, 2, 1–2 | a dynamically linked image that imports nothing, only `dlopen` / `dlsym` and memory calls, or three or fewer substantive symbols (T1027.007); statically linked images are informational |
+| `packer.upx` / `packer.generic` | 2 / 3 | UPX by its `UPX!` markers (the copyright banner alone is not evidence: the `upx` binary carries it); otherwise no section table plus a packed executable segment plus nothing imported |
+| `overlay.present`, `overlay.high-entropy` | 1, 2 | data past the end of every header, segment and section (T1027.009); an AppImage's appended filesystem is informational |
+| `module.unsigned`, `module.info-missing` | 1, 2 | a kernel module without an appended signature (presence only: the keyring is not here), or without `.modinfo` vermagic (T1014) |
+| `header.class-machine-mismatch`, `format.program-table-invalid`, `format.section-table-invalid`, `format.truncated`, `format.interp-without-dynamic`, `format.type-unknown` | 1, 2, 2, 2, 2, 2 | malformed images; a section table pointing outside the file is the classic trick that breaks analysis tools while the loader does not care |
+
 Honesty rules baked into the output: packed is not malicious (a Debian-shipped
 UPX binary is packed, correctly, by provenance); signature presence is not
 validity (nothing is verified against a trust store, `verified` is always
@@ -167,9 +212,18 @@ Measured on the 49 PE files in `/usr/share/windows-resources`, 43 score 0,
 the UPX-packed `wget.exe` scores 7 and renders as low suspicion with the
 packer named, nothing crosses the threshold, and credential tools score 0 here
 by design because capability is the heuristic pass's job.
+Measured on 4,974 ELF files under Kali's `/usr/bin`, `/usr/sbin`,
+`/usr/lib/x86_64-linux-gnu`, `/usr/libexec` and `/usr/lib/systemd` plus 40
+signed kernel modules, nothing crosses the threshold and 21 files carry a
+single weight-1 observation (launcher stubs with three or fewer imports,
+vendor executable sections such as libGL's `wtext`); a UPX-packed `ls`
+scores 6 and renders as low suspicion with the packer named; `libasan`,
+`libeatmydata` and sudo's noexec shims are named as known interposers at
+weight 0.
 
-`cau hash` prints the digests, `cau cluster` groups PE files by import
-similarity (exact imphash, then MinHash / LSH over import sets).
+`cau hash` prints the digests, `cau cluster` groups PE and ELF files by
+import similarity (exact imphash or ELF import-set hash, then MinHash / LSH
+over import sets).
 
 ## Invisible codepoints (stego)
 

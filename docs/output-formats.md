@@ -40,14 +40,14 @@ code with its reason.
 ## JSON
 
 `--format json` writes a single self-describing document.
-`schema_version` is `1.2.0` and follows a strict contract: a patch bump
+`schema_version` is `1.3.0` and follows a strict contract: a patch bump
 changes nothing a consumer sees; a minor bump adds optional fields or enum
 values; only a major bump removes, renames or retypes anything. Consumers
 should ignore unknown fields.
 
 ```jsonc
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "tool": { "name": "CAU EDR", "version": "v0.4.0", "tagline": "..." },
   "generated_at": "2026-10-25T09:47:00Z",
   "root": "./dist",                      // present when --dir was the only target
@@ -73,8 +73,8 @@ Per file:
 | `hashes` | `md5`, `sha1`, `sha256` |
 | `hash_match` | `type`, `hash`, `threat` when a signature matched |
 | `yara[]` | `rule`, `namespace`, `tags[]`, `meta[]` as key/value pairs in rule order, `strings[]` with `name`, `offset`, `data_hex`, `preview`, `truncated`, `length`, `xor_key` |
-| `heuristics` | `score`, `threshold`, `detected`, `is_pe`, `skipped`, `categories[]` (`category`, `raw`, `applied`, `cap`, `weak`, `technique`), `matches[]` (`indicator`, `category`, `source`, `pattern`, `score`, `hits`, `examples[]`, `technique`) |
-| `static` | `score`, `threshold`, `detected`, `entropy`, `high_entropy_fraction`, `tlsh`, `ssdeep`, `imphash`, `pe` (format, machine, subsystem, timestamp, entry point and section, imports, DLLs, sections with permissions and entropy, overlay, packer with evidence, Rich header, signature with the certificate chain and `verified: false` plus a note, debug directory), `anomalies[]` (`class`, `category`, `score`, `detail`, `technique`), `categories[]`, `fuzzy_matches[]` (`type`, `hash`, `threat`, `distance`, `score`) |
+| `heuristics` | `score`, `threshold`, `detected`, `is_pe`, `is_elf`, `skipped`, `categories[]` (`category`, `raw`, `applied`, `cap`, `weak`, `technique`), `matches[]` (`indicator`, `category`, `source`, `pattern`, `score`, `hits`, `examples[]`, `technique`) |
+| `static` | `score`, `threshold`, `detected`, `is_pe`, `is_elf`, `entropy`, `high_entropy_fraction`, `tlsh`, `ssdeep`, `imphash` (PE), `import_hash` (ELF import-set key, not telfhash), `pe` (format, machine, subsystem, timestamp, entry point and section, imports, DLLs, sections with permissions and entropy, overlay, packer with evidence, Rich header, signature with the certificate chain and `verified: false` plus a note, debug directory), `elf` (class, byte order, type, machine, OS ABI, entry point and section, interpreter, `pie` / `static` / `stack_executable` / `relro` / `textrel`, build-id, ABI tag, SONAME, `needed[]`, `rpath[]`, `runpath[]`, import and export counts, `segments[]` and `sections[]` with permissions and entropy, overlay, packer, `module` with `signed` as presence only and a note saying so), `anomalies[]` (`class`, `category`, `score`, `detail`, `technique`), `categories[]`, `fuzzy_matches[]` (`type`, `hash`, `threat`, `distance`, `score`) |
 | `stego` | `score`, `threshold`, `detected`, `is_text`, `encoding`, `skipped`, counts `suspicious` / `benign` / `info`, `longest_run`, `ascii_carrier`, `codepoints[]` (`codepoint`, `name`, `class`, `count`, `benign_context`, `first_offset`, `first_line`, `excuses{}`, `examples[]`), `findings[]` (`class`, `score`, `detail`, `technique`, `novel`) |
 | `fusion` | `tier`, `score`, `threshold`, `confidence`, `agreed[]`, `techniques[]`, `novel[]`, `corroborated`, `explanation`, `sources[]` (`name`, `role`, `hit`, `score`, `threshold`, `ratio`, `weight`, `counted`, `skipped`, `evidence[]` with `label`, `detail`, `technique`, `novel`, `weight`) |
 
@@ -95,7 +95,7 @@ one result per finding.
 | `hash/<threat>` | error | a hash-signature hit |
 | `yara/<namespace>/<rule>` | error | a YARA match; the rule carries the description, tags, threat level and author |
 | `heuristic/score` | note | a heuristic breach, with every indicator in `properties.indicators` |
-| `static/score` | note | a static breach, with the anomalies, imphash, packer and TLSH in properties |
+| `static/score` | note | a static breach, with the anomalies, imphash (PE) or import hash and interpreter (ELF), packer and TLSH in properties |
 | `stego/zero-width`, `stego/bidi-control`, `stego/tag`, `stego/variation-selector` | note | one result per scored stego class, with a byte-offset region (`byteOffset`, `byteLength`, `startLine`) at the first hidden codepoint and the modifiers in properties |
 | `fusion/corroborated` | note | a fused verdict reached by corroboration, with the agreeing sources, techniques and the one-line explanation |
 | `scan/error` | warning | a file that could not be scanned: a coverage gap, not a clean bill of health |

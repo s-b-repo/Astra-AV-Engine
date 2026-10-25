@@ -45,6 +45,10 @@ type Result struct {
 	PE         *PE    `json:"pe,omitempty"`
 	ParseError string `json:"parse_error,omitempty"`
 
+	// IsELF is true when the file parsed as an ELF image. ELF is then non-nil.
+	IsELF bool `json:"is_elf"`
+	ELF   *ELF `json:"elf,omitempty"`
+
 	Anomalies  []Anomaly       `json:"anomalies,omitempty"`
 	Categories []CategoryScore `json:"categories,omitempty"`
 	Score      int             `json:"score"`
@@ -96,6 +100,34 @@ func (r *Result) Imphash() string {
 	return r.PE.Imphash
 }
 
+// ImportHash returns the import-set clustering key for the file: the imphash
+// of a PE, the CAU import-set hash of an ELF, "" otherwise.
+func (r *Result) ImportHash() string {
+	switch {
+	case r == nil:
+		return ""
+	case r.PE != nil:
+		return r.PE.Imphash
+	case r.ELF != nil:
+		return r.ELF.ImportHash
+	}
+	return ""
+}
+
+// ImportNames returns the import names used for similarity clustering:
+// "dll.function" for a PE, bare symbol names for an ELF.
+func (r *Result) ImportNames() []string {
+	switch {
+	case r == nil:
+		return nil
+	case r.PE != nil:
+		return r.PE.ImportNames()
+	case r.ELF != nil:
+		return append([]string(nil), r.ELF.Imports...)
+	}
+	return nil
+}
+
 // Analyze runs the structural analysis over an in-memory buffer. It never
 // panics on hostile input: parsing failures become ParseError plus warnings.
 func Analyze(data []byte, opts Options) *Result {
@@ -112,7 +144,8 @@ func Analyze(data []byte, opts Options) *Result {
 	}
 
 	var anoms []Anomaly
-	if IsPE(data) {
+	switch {
+	case IsPE(data):
 		p, err := ParsePE(data)
 		if err != nil {
 			r.ParseError = err.Error()
@@ -126,6 +159,17 @@ func Analyze(data []byte, opts Options) *Result {
 				p.ImportCount += len(d.Functions)
 			}
 			anoms = append(anoms, anomalies(p, now)...)
+		}
+	case IsELF(data):
+		e, err := ParseELF(data)
+		if err != nil {
+			r.ParseError = err.Error()
+			anoms = append(anoms, Anomaly{Class: "format.unparseable", Category: CatFormat, Score: 2,
+				Detail: "ELF signature present but headers could not be parsed: " + err.Error()})
+		} else {
+			r.IsELF = true
+			r.ELF = e
+			anoms = append(anoms, elfAnomalies(e)...)
 		}
 	}
 	if opts.FuzzyDB != nil {

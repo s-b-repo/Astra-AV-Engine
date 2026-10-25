@@ -246,3 +246,45 @@ func BenchmarkHeuristicsRealBinary(b *testing.B) {
 		ScanHeuristicsData(path, data, HeuristicOptions{})
 	}
 }
+
+// ELF imports feed the same indicator table as PE imports. The fixture is a
+// system binary that legitimately uses ptrace (sudo's intercept feature,
+// strace, gdb); it must register the import and stay below the threshold,
+// the same documented class as debuggers on Windows.
+func TestHeuristicsELFImports(t *testing.T) {
+	if names, ok := elfImports([]byte("\x7fELF but not really")); ok || names != nil {
+		t.Error("truncated ELF header accepted")
+	}
+	if names, ok := elfImports([]byte("plain text")); ok || names != nil {
+		t.Error("text treated as ELF")
+	}
+	var path string
+	for _, p := range []string{"/usr/bin/sudo", "/usr/bin/strace", "/usr/bin/gdb", "/usr/bin/ltrace"} {
+		if _, err := os.Stat(p); err == nil {
+			path = p
+			break
+		}
+	}
+	if path == "" {
+		t.Skip("no ptrace-importing binary on this machine")
+	}
+	h := ScanHeuristics(path)
+	if h.Error != nil {
+		t.Fatal(h.Error)
+	}
+	if !h.IsELF || h.IsPE {
+		t.Fatalf("%s: elf=%v pe=%v", path, h.IsELF, h.IsPE)
+	}
+	var elfImport bool
+	for _, m := range h.Matches {
+		if m.Source == "ELF Import" && m.Indicator == "ptrace" && m.Category == catInjection && m.Technique == "T1055" {
+			elfImport = true
+		}
+	}
+	if !elfImport {
+		t.Errorf("%s: ptrace import not credited: %+v", path, h.Matches)
+	}
+	if h.Detected() {
+		t.Errorf("%s: a ptrace user alone crossed the threshold (%d/%d): %+v", path, h.Score, h.EffectiveThreshold(), h.Categories)
+	}
+}

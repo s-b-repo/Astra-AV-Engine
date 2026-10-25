@@ -247,6 +247,29 @@ func (c config) writeStatic(w io.Writer, s *static.Result) {
 				fmt.Fprintf(w, "     %-10s: %s\n", "Packer", c.boundedMessage(p.Packer.Name))
 			}
 		}
+		if e := s.ELF; e != nil {
+			image := fmt.Sprintf("%s %s %s, %d imports", e.Class, c.boundedMessage(e.MachineName), c.boundedMessage(e.TypeName), e.ImportCount)
+			switch {
+			case e.Interp != "":
+				image += ", interp " + c.boundedMessage(e.Interp)
+			case e.Static:
+				image += ", static"
+			}
+			if e.ImportHash != "" {
+				image += ", import hash " + c.boundedHash(e.ImportHash)
+			}
+			fmt.Fprintf(w, "     %-10s: %s\n", "Image", image)
+			if e.Packer != nil {
+				fmt.Fprintf(w, "     %-10s: %s\n", "Packer", c.boundedMessage(e.Packer.Name))
+			}
+			if m := e.Module; m != nil {
+				signed := "unsigned"
+				if m.Signed {
+					signed = "signature present, not verified"
+				}
+				fmt.Fprintf(w, "     %-10s: kernel module %s, vermagic %s, %s\n", "Module", c.boundedMessage(m.Name), c.boundedMessage(m.Vermagic), signed)
+			}
+		}
 		fmt.Fprintln(w)
 		for _, cs := range s.Categories {
 			if cs.Applied == 0 {

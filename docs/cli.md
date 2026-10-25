@@ -3,7 +3,7 @@
 ```
 cau scan      [flags] [path ...]     scan files and directories
 cau hash      [flags] <path ...>     print SHA-256, imphash, TLSH and ssdeep digests
-cau cluster   [flags] <path ...>     group PE files by import-table similarity
+cau cluster   [flags] <path ...>     group PE and ELF files by import-table similarity
 cau add-hash  [flags]                append a hash signature to the database
 cau add-fuzzy [flags]                append a TLSH / ssdeep / imphash signature
 cau eval      <subcommand> [flags]   corpus evaluation harness
@@ -97,8 +97,9 @@ levels are supersets of each other:
 
 ## cau hash
 
-Prints the digests the static pass computes: SHA-256, imphash (PE files
-only, pefile-compatible), TLSH and ssdeep.
+Prints the digests the static pass computes: SHA-256, imphash (PE,
+pefile-compatible) or the ELF import-set hash (MD5 over the sorted undefined
+symbol names, labeled as such; not telfhash), TLSH and ssdeep.
 
 ```sh
 cau hash plink.exe
@@ -111,8 +112,10 @@ cau hash --format json a.exe b.dll
 
 ## cau cluster
 
-Groups PE files by import-table similarity: exact imphash groups first, then
-MinHash / LSH clusters over the import sets with a Jaccard floor.
+Groups PE and ELF files by import-table similarity: exact import-hash groups
+first (imphash for PE, the import-set hash for ELF), then MinHash / LSH
+clusters over the import sets with a Jaccard floor. Files of other formats
+are counted and skipped.
 
 ```sh
 cau cluster --dir ./samples
@@ -122,7 +125,7 @@ cau cluster --min-similarity 0.8 --imphashes a.exe b.exe c.exe
 | Flag | Default | Meaning |
 |---|---|---|
 | `--min-similarity X` | 0.6 | Jaccard floor for near clusters (0 < x ≤ 1) |
-| `--imphashes` | off | also list every file's imphash |
+| `--imphashes` | off | also list every file's import hash |
 | `--format text\|json` | text | output format |
 
 ## cau add-hash

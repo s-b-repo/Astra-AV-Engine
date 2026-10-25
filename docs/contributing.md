@@ -22,8 +22,12 @@ Go 1.24, libyara 4.3 with headers and pkg-config are required; see
    or a content file lands with before/after numbers on the same fixtures.
    The smoke corpus gate (`make eval`) is the floor; the real-binary sets the
    existing numbers were measured on (Kali's `/usr/share/windows-resources`,
-   `/usr/share/doc`, `/usr/lib/python3/dist-packages`) are the bar. Record
-   the result where the detector is documented and in PLAN.md.
+   `/usr/share/doc`, `/usr/lib/python3/dist-packages`, and for ELF the
+   system's own `/usr/bin`, `/usr/sbin`, `/usr/lib/x86_64-linux-gnu`,
+   `/usr/libexec`, `/usr/lib/systemd` plus decompressed kernel modules) are
+   the bar. `go test ./scanner/static/ -run TestMeasureReal -v` prints the
+   per-file scores for both populations. Record the result where the detector
+   is documented and in PLAN.md.
 2. **Explain every finding.** New evidence gets a stable, labeled class
    (`section.rwx`, `stego.zero-width`), a weight, a category, and an ATT&CK
    technique where one honestly applies. Reports, SARIF rule ids, the eval
@@ -50,7 +54,11 @@ Go 1.24, libyara 4.3 with headers and pkg-config are required; see
   loading and timeouts, heuristic fixtures that pin the measured tool-set
   numbers, fusion wiring.
 - `scanner/static/`: synthetic PE builder (headers, imports, Rich header, TLS,
-  Authenticode) covering every anomaly class and the measured non-findings.
+  Authenticode) and synthetic ELF builder (32/64-bit, both byte orders,
+  dynamic table, symbols, notes, kernel-module shape, malformed tables)
+  covering every anomaly class and the measured non-findings; a mutation test
+  that flips header bytes of real and synthetic ELF images and requires no
+  panic; `TestWriteELFFixtures`, which regenerates the corpus ELF samples.
 - `scanner/stego/`: every class, every context rule, UTF-16, hostile input,
   bounded examples.
 - `scanner/fusion/`: roles, definitive handling, cap, floor, stable ordering,

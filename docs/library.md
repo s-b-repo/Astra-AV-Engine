@@ -113,6 +113,7 @@ static.ComputeFuzzy(data)                 // TLSH + ssdeep
 static.TLSHDistance(a, b)                 // published thresholds: <= 30 is a match
 static.SSDeepScore(a, b)                  // >= 70 is a match
 pe, err := static.ParsePE(data)           // own bounds-checked parser; pe.Imphash
+elf, err := static.ParseELF(data)         // same rules; elf.Imports, elf.ImportHash, elf.Module
 ```
 
 `scanner.CategoryTechnique(category)` and `scanner.Categories()` expose the

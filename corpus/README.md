@@ -12,9 +12,11 @@ corpus/
     hashes.txt           # signature DB with the hash-only sample's SHA-256
     malicious/*.bin      # text files that trip rules/rule_list.yar
     malicious/*.md       # prose with stray zero-width codepoints (stego pass)
+    malicious/*.bin      # also one synthetic ELF with a dropper's structure (static pass)
     benign/*             # true negatives: an empty file, a script with a URL, emoji
                          # joiners, Persian and Hindi text, a BOM, UTF-16 — legitimate
-                         # uses of the codepoints the stego pass looks for
+                         # uses of the codepoints the stego pass looks for — and a
+                         # synthetic clean ELF
   <name>/                # real corpora live outside git (see below)
 ```
 
@@ -90,8 +92,12 @@ through `smoke/hashes.txt`, one Markdown file with stray zero-width codepoints
 between its words (nothing is encoded in them; the fixture exercises presence
 detection), and benign controls that use the same invisible codepoints
 legitimately (emoji sequences, Persian ZWNJ, Devanagari ZWJ, a byte-order
-mark, UTF-16 text). With `rules/rule_list.yar` and `smoke/hashes.txt` the
-engine must reach 100% recall and 0 false positives on it; the test in
+mark, UTF-16 text), plus two ELF images that `scanner/static`'s
+`TestWriteELFFixtures` regenerates byte-for-byte: a clean PIE and a file with
+a dropper's structure (RWX packed code, a program interpreter under `/tmp`,
+`dlopen`/`dlsym`-only imports) whose bytes are pseudo-random and run nothing.
+With `rules/rule_list.yar` and `smoke/hashes.txt` the engine must reach 100%
+recall and 0 false positives on it; the test in
 `internal/eval/scannerbridge` enforces that, and the harness's own tests check
 that the manifest validates with hash verification on.
 

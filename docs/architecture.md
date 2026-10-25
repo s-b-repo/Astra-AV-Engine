@@ -6,14 +6,14 @@
                  ┌─────────────── one read (≤ 64 MiB in memory, else streamed) ───────────────┐
   file ──────►   │ MD5 / SHA-1 / SHA-256 ──► signature DB ──────────────────► hash hit        │
                  │ libyara in-process (timeout) ───────────────────────────► YARA matches     │
-                 │ PE imports + ASCII/UTF-16 strings ──► capped scoring ───► heuristic score  │
-                 │ entropy, TLSH/ssdeep/imphash, PE anatomy ──► anomalies ──► static score    │
+                 │ PE/ELF imports + ASCII/UTF-16 strings ► capped scoring ───► heuristic score  │
+                 │ entropy, TLSH/ssdeep/imphash, PE/ELF anatomy ► anomalies ──► static score    │
                  │ UTF-8/UTF-16 decode ──► invisible codepoints + context ──► stego score     │
                  └───────────────────────────────┬────────────────────────────────────────────┘
                                                  ▼
                               fusion lattice: ratios, roles, techniques, tier
                                                  ▼
-                      internal/report: text | JSON 1.2.0 | SARIF 2.1.0 + exit policy
+                      internal/report: text | JSON 1.3.0 | SARIF 2.1.0 + exit policy
                       internal/eval:   corpus runner, metrics, diff, regression gate
 ```
 
@@ -70,7 +70,7 @@ hit. Both rules are tested.
 main.go, cmd_eval.go, cmd_static.go, resources.go
                        CLI commands and resource discovery
 scanner/               Engine (single read), signature DB, YARA, heuristics, fuse.go
-scanner/static/        PE parser, entropy, fuzzy hashes, anomalies, packers, Authenticode, clustering
+scanner/static/        PE and ELF parsers, entropy, fuzzy hashes, anomalies, packers, Authenticode, clustering
 scanner/stego/         invisible-codepoint pass
 scanner/fusion/        the fusion lattice
 internal/report/       text / JSON / SARIF reporters and the exit-code policy

@@ -113,6 +113,21 @@
       "label": "clean",
       "sha256": "df9e0c0a9e107359bd968f41b3af2a5dd6dcf88b891cafe6e76b4c4eedbdbdef",
       "notes": "UTF-16LE text with BOM: decoded, nothing hidden"
+    },
+    {
+      "id": "benign-hello_elf",
+      "path": "benign/hello_elf.bin",
+      "label": "clean",
+      "sha256": "056292c136ccc2b54a9de94a579b782e328da248213b588f0bd541ee0c19c317",
+      "notes": "synthetic ELF64 PIE written byte-for-byte by scanner/static TestWriteELFFixtures: system loader path, libc imports, non-executable stack, build-id; static score 0"
+    },
+    {
+      "id": "mal-elf_dropper_profile",
+      "path": "malicious/elf_dropper_profile.bin",
+      "label": "elf_dropper_profile",
+      "family": "elf_dropper_profile",
+      "sha256": "451510bb4df04d001ced58f5635722ee864dd30e9dbfd57632abb83cb025ef2f",
+      "notes": "synthetic ELF64 written by scanner/static TestWriteELFFixtures: RWX packed .text, program interpreter under /tmp, dlopen/dlsym-only imports; trips scanner/static segment.rwx + segment.exec-high-entropy + dynamic.interp-unusual + imports.loader-only (a structural profile; the bytes are pseudo-random, nothing in it runs)"
     }
   ]
 }

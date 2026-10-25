@@ -499,6 +499,17 @@ func (c config) appendStatic(results []sarifResult, table *ruleTable, res scanne
 			props["packer"] = c.boundedMessage(p.Packer.Name)
 		}
 	}
+	if e := s.ELF; e != nil {
+		if e.ImportHash != "" {
+			props["import_hash"] = c.boundedHash(e.ImportHash)
+		}
+		if e.Packer != nil {
+			props["packer"] = c.boundedMessage(e.Packer.Name)
+		}
+		if e.Interp != "" {
+			props["interp"] = c.boundedMessage(e.Interp)
+		}
+	}
 	if s.Fuzzy.TLSH != "" {
 		props["tlsh"] = c.boundedHash(s.Fuzzy.TLSH)
 	}

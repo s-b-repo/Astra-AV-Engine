@@ -154,7 +154,7 @@ func TestJSONStegoAndFusion(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.SchemaVersion != "1.2.0" {
+	if doc.SchemaVersion != JSONSchemaVersion {
 		t.Errorf("schema = %s", doc.SchemaVersion)
 	}
 	if doc.Summary.StegoDetections != 1 || doc.Summary.FusionDetections != 1 || doc.Summary.StegoThreshold != DefaultStegoThreshold || doc.Summary.Verdict != JSONVerdictSuspicious {

@@ -501,10 +501,15 @@ is part of the deliverable.
 
 ## Phase 9 — Blind-spot sweep (what this plan had been missing)
 
-- [ ] Linux-native ELF detection — the top non-firmware gap. The engine today is a
-  PE-only engine behind a Linux CLI: `debug/elf` heuristics (.init_array hooking, export
-  table oddities, syscall-stub templates, SSH/cron tamper patterns), kernel-module
-  signature state, autostart paths. GTFOBins/GTFOArgs intake is behavior content, not
+- [~] Linux-native ELF detection — the top non-firmware gap. **Engine half shipped
+  2026-10-25**: own ELF parser and anomaly classes in `scanner/static` (RWX / packed
+  segments, stripped section tables, interpreter and `RPATH` hijack, `dlsym`-resolving
+  libc interposers, loader-only imports, kernel-module signature and `modinfo` state,
+  malformed tables), ELF imports in the heuristics pass with a Kernel Rootkit category,
+  measured at 0 detections on 4,974 Kali ELF files. **Open**: `.init_array` target
+  resolution (needs relocations), symbol versions, syscall-stub templates, SSH/cron
+  tamper patterns and autostart paths (content, not parser), telfhash compatibility.
+  The pass is no longer "a PE-only engine behind a Linux CLI". GTFOBins/GTFOArgs intake is behavior content, not
   binary content — without this, the eBPF sensor (#Phase 7-7) is telemetry with no local
   verifier.
 - [ ] Document & archive vectors: OLE (VBA, macro stomping, remote templates), PDF, LNK,

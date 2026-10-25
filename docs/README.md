@@ -9,7 +9,7 @@ written in Go. These pages are the reference; the repository
 | [Installation](installation.md) | requirements, building, installing, release tarballs, where resources are found |
 | [Command-line reference](cli.md) | every command and flag, exit codes, CI recipes |
 | [Detectors](detectors.md) | hash signatures, YARA, heuristics, static structure, invisible codepoints, the fusion lattice |
-| [Output formats](output-formats.md) | the text report, the JSON document (schema 1.2.0), SARIF 2.1.0, the `--fail-on` policy |
+| [Output formats](output-formats.md) | the text report, the JSON document (schema 1.3.0), SARIF 2.1.0, the `--fail-on` policy |
 | [Detection content](detection-content.md) | signature databases, YARA rule conventions, the fuzzy-hash database, external rule sets |
 | [Evaluation harness](evaluation.md) | corpora, manifests, baselines, regression policies, the measurements behind every number |
 | [Library usage](library.md) | using the engine from Go |

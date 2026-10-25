@@ -8,12 +8,13 @@
 //   - YARA (YaraScanner): rules compiled once with libyara, matched in memory
 //     with a per-file timeout; rule meta and namespaces are kept. A match is
 //     MALICIOUS.
-//   - Heuristics (ScanHeuristicsData): suspicious PE imports and strings,
+//   - Heuristics (ScanHeuristicsData): suspicious PE / ELF imports and strings,
 //     scored once per pattern with per-category caps and a shared budget for
 //     the weak categories; every category carries an ATT&CK technique. A
 //     score at or above the threshold is SUSPICIOUS.
-//   - Static structure (package static): entropy, fuzzy digests and a
-//     bounds-checked PE pass producing labeled anomaly classes. SUSPICIOUS.
+//   - Static structure (package static): entropy, fuzzy digests and
+//     bounds-checked PE and ELF passes producing labeled anomaly classes.
+//     SUSPICIOUS.
 //   - Stego (package stego): invisible Unicode codepoints in text and code
 //     artifacts, presence-based with named context exceptions. SUSPICIOUS.
 //   - Fusion (package fusion): the lattice over all of the above. It never

@@ -72,7 +72,10 @@ Each digest is validated for its type; duplicates and conflicting re-labels
 are refused with the existing entry named. Matching thresholds are published
 constants: TLSH distance ≤ 30, ssdeep score ≥ 70; an imphash matches exactly.
 A match is SUSPICIOUS-tier evidence carrying the distance and the entry's
-name, never a MALICIOUS verdict.
+name, never a MALICIOUS verdict. `IMPHASH` entries are PE import hashes
+(pefile-compatible); the ELF import-set hash that `cau hash` prints is a
+clustering key for `cau cluster` and is not looked up here. TLSH and ssdeep
+entries apply to every file type.
 
 The shipped database is empty on purpose: fuzzy content arrives through the
 same measured intake as hashes, never hand-typed. `cau add-fuzzy --file`

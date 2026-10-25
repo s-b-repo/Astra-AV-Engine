@@ -23,11 +23,14 @@ type hashRecord struct {
 	Size    int64  `json:"size,omitempty"`
 	SHA256  string `json:"sha256,omitempty"`
 	Imphash string `json:"imphash,omitempty"`
-	TLSH    string `json:"tlsh,omitempty"`
-	SSDeep  string `json:"ssdeep,omitempty"`
-	IsPE    bool   `json:"is_pe"`
-	Note    string `json:"note,omitempty"`
-	Error   string `json:"error,omitempty"`
+	// ImportHash is the ELF import-set key (not telfhash); PE files use Imphash.
+	ImportHash string `json:"import_hash,omitempty"`
+	TLSH       string `json:"tlsh,omitempty"`
+	SSDeep     string `json:"ssdeep,omitempty"`
+	IsPE       bool   `json:"is_pe"`
+	IsELF      bool   `json:"is_elf"`
+	Note       string `json:"note,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 func cmdHash(args []string, stdout, stderr io.Writer) int {
@@ -61,9 +64,13 @@ func cmdHash(args []string, stdout, stderr io.Writer) int {
 			rec.Size = int64(r.Size)
 			rec.SHA256 = sha256File(p)
 			rec.Imphash = r.Imphash()
+			if r.ELF != nil {
+				rec.ImportHash = r.ELF.ImportHash
+			}
 			rec.TLSH = r.Fuzzy.TLSH
 			rec.SSDeep = r.Fuzzy.SSDeep
 			rec.IsPE = r.IsPE
+			rec.IsELF = r.IsELF
 			rec.Note = strings.TrimSpace(strings.Join([]string{r.Fuzzy.TLSHNote, r.Fuzzy.SSDeepNote}, " "))
 		}
 		recs = append(recs, rec)
@@ -82,6 +89,9 @@ func cmdHash(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "  sha256 : %s\n", rec.SHA256)
 			if rec.Imphash != "" {
 				fmt.Fprintf(stdout, "  imphash: %s\n", rec.Imphash)
+			}
+			if rec.ImportHash != "" {
+				fmt.Fprintf(stdout, "  imphash: %s (ELF import-set hash)\n", rec.ImportHash)
 			}
 			if rec.TLSH != "" {
 				fmt.Fprintf(stdout, "  tlsh   : %s\n", rec.TLSH)
@@ -174,21 +184,23 @@ func cmdAddFuzzy(args []string, stdout, stderr io.Writer) int {
 type clusterDoc struct {
 	Files         int               `json:"files"`
 	PEFiles       int               `json:"pe_files"`
+	ELFFiles      int               `json:"elf_files"`
 	Skipped       int               `json:"skipped"`
 	MinSimilarity float64           `json:"min_similarity"`
 	Clusters      []static.Cluster  `json:"clusters"`
 	Imphashes     map[string]string `json:"imphashes,omitempty"`
 }
 
-// cmdCluster groups PE files by import-table similarity: exact imphash groups
-// and MinHash/LSH near groups. It reads every file once and never executes
-// anything; non-PE files are counted and skipped.
+// cmdCluster groups PE and ELF files by import-table similarity: exact
+// import-hash groups (imphash for PE, the import-set hash for ELF) and
+// MinHash/LSH near groups. It reads every file once and never executes
+// anything; files of other formats are counted and skipped.
 func cmdCluster(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("cluster", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	format := fs.String("format", "text", "output format: text or json")
 	minSim := fs.Float64("min-similarity", 0.6, "Jaccard floor for near clusters (0 < x <= 1)")
-	withHashes := fs.Bool("imphashes", false, "also list every PE file's imphash")
+	withHashes := fs.Bool("imphashes", false, "also list every file's import hash (imphash for PE, import-set hash for ELF)")
 	maxMiB := fs.Int64("max-in-memory", static.DefaultMaxSize>>20, "largest file (MiB) to read")
 	if err := fs.Parse(args); err != nil {
 		return report.ExitUsage
@@ -233,15 +245,20 @@ func cmdCluster(args []string, stdout, stderr io.Writer) int {
 	cl := static.NewClusterer()
 	for _, p := range paths {
 		r := static.AnalyzeFile(p, static.Options{NoFuzzy: true, MaxSize: *maxMiB << 20})
-		if r.Error != nil || r.Skipped != "" || !r.IsPE {
+		if r.Error != nil || r.Skipped != "" || (!r.IsPE && !r.IsELF) {
 			doc.Skipped++
 			continue
 		}
-		doc.PEFiles++
-		names := r.PE.ImportNames()
-		cl.Add(static.ClusterItem{ID: p, Imphash: r.PE.Imphash, Sig: static.ImportMinHash(names), Imports: len(names)})
+		if r.IsPE {
+			doc.PEFiles++
+		} else {
+			doc.ELFFiles++
+		}
+		names := r.ImportNames()
+		hash := r.ImportHash()
+		cl.Add(static.ClusterItem{ID: p, Imphash: hash, Sig: static.ImportMinHash(names), Imports: len(names)})
 		if doc.Imphashes != nil {
-			doc.Imphashes[p] = r.PE.Imphash
+			doc.Imphashes[p] = hash
 		}
 	}
 	doc.Clusters = cl.Clusters(*minSim)
@@ -255,14 +272,14 @@ func cmdCluster(args []string, stdout, stderr io.Writer) int {
 		}
 		return report.ExitOK
 	}
-	fmt.Fprintf(stdout, "%d file(s), %d PE, %d skipped (not PE, unreadable or over the size cap)\n", doc.Files, doc.PEFiles, doc.Skipped)
+	fmt.Fprintf(stdout, "%d file(s), %d PE, %d ELF, %d skipped (neither PE nor ELF, unreadable or over the size cap)\n", doc.Files, doc.PEFiles, doc.ELFFiles, doc.Skipped)
 	if len(doc.Clusters) == 0 {
 		fmt.Fprintf(stdout, "no clusters at similarity >= %.2f\n", *minSim)
 	}
 	for _, c := range doc.Clusters {
 		switch c.Kind {
 		case "imphash":
-			fmt.Fprintf(stdout, "\n[%s] %d files share imphash %s\n", c.ID, len(c.Members), c.Imphash)
+			fmt.Fprintf(stdout, "\n[%s] %d files share import hash %s\n", c.ID, len(c.Members), c.Imphash)
 		default:
 			fmt.Fprintf(stdout, "\n[%s] %d files with import similarity >= %.2f\n", c.ID, len(c.Members), c.MinSimilarity)
 		}

@@ -272,3 +272,135 @@ func TestSARIFStatic(t *testing.T) {
 		t.Error("static results emitted with heuristics disabled")
 	}
 }
+
+// ── ELF ──────────────────────────────────────────────────────────────────────
+
+func staticELFBreach(path string) scanner.ScanResult {
+	r := staticClean(path)
+	r.Static.IsELF = true
+	r.Static.ELF = &static.ELF{Class: "elf64", ByteOrder: "little", TypeName: "dyn", MachineName: "x86-64", OSABIName: "sysv",
+		Entry: 0x401000, EntrySection: ".text", Interp: "/tmp/.x/ld.so", IsPIE: true, ImportCount: 4, ImportHash: strings.Repeat("e", 32),
+		Needed: []string{"libc.so.6"}, RunPath: []string{"/tmp/lib"},
+		Segments: []static.ELFSegment{{Type: "LOAD", Perms: "rwx", FileSize: 4096, MemSize: 4096, Entropy: 7.9, Entry: true}},
+		Sections: []static.ELFSection{{Name: ".text", TypeName: "PROGBITS", Perms: "r-x", Size: 4096, Entropy: 7.9, Entry: true}},
+		Packer:   &static.Packer{Name: "UPX", Evidence: []string{"UPX! marker in the loader header"}},
+		Module:   &static.ELFModule{Name: "<script>evil</script>", Vermagic: "6.1.0 SMP", License: "GPL", InfoPresent: true}}
+	r.Static.Anomalies = []static.Anomaly{
+		{Class: "segment.rwx", Category: static.CatSections, Score: 3, Detail: "writable+executable segment(s): LOAD[0](rwx)", Technique: "T1027.009"},
+		{Class: "segment.exec-high-entropy", Category: static.CatSections, Score: 2, Detail: "executable segment(s) above 7.0 bits/byte: LOAD[0](7.90)", Technique: "T1027"},
+		{Class: "dynamic.interp-unusual", Category: static.CatDynamic, Score: 2, Detail: `program interpreter "/tmp/.x/ld.so" is not a system loader path`, Technique: "T1574"},
+		{Class: "dynamic.rpath-insecure", Category: static.CatDynamic, Score: 2, Detail: "RPATH/RUNPATH searches attacker-writable or relative location(s): /tmp/lib", Technique: "T1574"},
+		{Class: "imports.loader-only", Category: static.CatImports, Score: 2, Detail: "imports are only the loader stub (dlopen, dlsym)", Technique: "T1027.007"},
+		{Class: "packer.upx", Category: static.CatPacker, Score: 2, Detail: "packed with UPX (UPX! marker in the loader header)", Technique: "T1027.002"},
+		{Class: "module.kernel", Category: static.CatInfo, Score: 0, Detail: "Linux kernel module"},
+	}
+	r.Static.Categories = []static.CategoryScore{
+		{Category: static.CatSections, Raw: 5, Applied: 5, Cap: 5},
+		{Category: static.CatDynamic, Raw: 4, Applied: 4, Cap: 4},
+		{Category: static.CatImports, Raw: 2, Applied: 2, Cap: 3},
+		{Category: static.CatPacker, Raw: 2, Applied: 2, Cap: 4},
+	}
+	r.Static.Score = 13
+	return r
+}
+
+func TestReportsELF(t *testing.T) {
+	in := Input{Results: []scanner.ScanResult{staticELFBreach("dropper.elf"), staticClean("clean.bin")}}
+
+	// JSON
+	var buf bytes.Buffer
+	if err := NewJSONReporter(testOpts()...).Write(&buf, in); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "<script>") {
+		t.Error("HTML escaping is off: hostile module name rendered raw")
+	}
+	var doc Document
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	var f File
+	for _, x := range doc.Files {
+		if x.Path == "dropper.elf" {
+			f = x
+		}
+	}
+	s := f.Static
+	if s == nil || !s.IsELF || s.IsPE || s.PE != nil || s.ELF == nil || !s.Detected || s.Score != 13 || f.Verdict != JSONVerdictSuspicious {
+		t.Fatalf("elf static = %+v verdict %s", s, f.Verdict)
+	}
+	if s.ImportHash != strings.Repeat("e", 32) || s.Imphash != "" {
+		t.Errorf("hashes: import_hash=%q imphash=%q", s.ImportHash, s.Imphash)
+	}
+	e := s.ELF
+	if e.Class != "elf64" || e.Type != "dyn" || e.Machine != "x86-64" || e.Interp != "/tmp/.x/ld.so" || !e.PIE || e.ImportCount != 4 ||
+		len(e.Segments) != 1 || e.Segments[0].Perms != "rwx" || len(e.Sections) != 1 || e.Sections[0].Name != ".text" ||
+		e.Packer == nil || e.Packer.Name != "UPX" || len(e.RunPath) != 1 || len(e.Needed) != 1 {
+		t.Errorf("elf anatomy = %+v", e)
+	}
+	if e.Module == nil || e.Module.Signed || !strings.Contains(e.Module.Note, "not verified") || e.Module.Name != "<script>evil</script>" {
+		t.Errorf("module = %+v", e.Module)
+	}
+	if len(s.Anomalies) != 7 || s.Anomalies[2].Technique != "T1574" || len(s.Categories) != 4 {
+		t.Errorf("anomalies = %+v", s.Anomalies)
+	}
+	if c := doc.Files[1].Static; c == nil || c.IsELF || c.ELF != nil || c.ImportHash != "" {
+		t.Errorf("clean static = %+v", c)
+	}
+
+	// Text
+	buf.Reset()
+	if err := NewTextReporter(testOpts()...).Write(&buf, in); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"[!] DETECTED (Static) — dropper.elf",
+		"13 / 8 threshold",
+		"Image     : elf64 x86-64 dyn, 4 imports, interp /tmp/.x/ld.so, import hash eeeeeeee",
+		"Packer    : UPX",
+		"Module    : kernel module",
+		"vermagic 6.1.0 SMP, unsigned",
+		"[Dynamic Linking] 4/4",
+		"dynamic.interp-unusual",
+		"(T1574)",
+		"segment.rwx",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("text output missing %q\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "module.kernel ") {
+		t.Errorf("zero-score info anomaly rendered as a scored finding: %s", out)
+	}
+
+	// SARIF
+	buf.Reset()
+	if err := NewSARIFReporter(testOpts()...).Write(&buf, in); err != nil {
+		t.Fatal(err)
+	}
+	var log struct {
+		Runs []struct {
+			Results []struct {
+				RuleID     string                 `json:"ruleId"`
+				Properties map[string]interface{} `json:"properties"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &log); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range log.Runs[0].Results {
+		if r.RuleID != SARIFRuleStatic {
+			continue
+		}
+		found = true
+		if r.Properties["import_hash"] != strings.Repeat("e", 32) || r.Properties["packer"] != "UPX" || r.Properties["interp"] != "/tmp/.x/ld.so" || r.Properties["imphash"] != nil {
+			t.Errorf("sarif properties = %v", r.Properties)
+		}
+	}
+	if !found {
+		t.Error("no static SARIF result for the ELF breach")
+	}
+}

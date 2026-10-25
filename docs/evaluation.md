@@ -79,9 +79,14 @@ strings the shipped rules look for, one file detected only through
 `corpus/smoke/hashes.txt`, one Markdown file with stray zero-width codepoints
 between its words (nothing is encoded in them), and benign controls that use
 the same invisible codepoints legitimately (emoji sequences, Persian ZWNJ,
-Devanagari ZWJ, a byte-order mark, UTF-16 text). The engine must reach 100 %
-recall and 0 false positives on it; a test enforces that. It proves the
-plumbing; recall numbers against it are not detection-quality numbers.
+Devanagari ZWJ, a byte-order mark, UTF-16 text), and two ELF images that
+`scanner/static`'s `TestWriteELFFixtures` regenerates byte-for-byte: a clean
+PIE and a file with a dropper's structure (RWX packed code, a program
+interpreter under `/tmp`, `dlopen`/`dlsym`-only imports) whose bytes are
+pseudo-random and run nothing; it is the structural pass's own true positive.
+The engine must reach 100 % recall and 0 false positives on it; a test
+enforces that. It proves the plumbing; recall numbers against it are not
+detection-quality numbers.
 
 ## Reports
 
@@ -153,6 +158,8 @@ Numbers quoted in the documentation and where they come from:
 |---|---|---|
 | heuristic retune | 349 files, `/usr/share/windows-resources` | detections 60 → 28; plink 24 → 5, vncviewer 11 → 4, dbghelp.dll 13 → 4; credential dumpers and injectors kept |
 | static weights | 49 PE files in the same set | 43 score 0; UPX-packed `wget.exe` 7, ASPack-packed `klogger.exe` 6, both below the threshold with the packer named |
+| static ELF weights | 4,974 ELF files under Kali's `/usr/bin`, `/usr/sbin`, `/usr/lib/x86_64-linux-gnu`, `/usr/libexec`, `/usr/lib/systemd`; 40 signed kernel modules (`scanner/static` `TestMeasureRealELF`) | 0 reach the threshold; 21 carry one weight-1 class; every module scores 0; UPX-packed `ls` 6 |
+| heuristic ELF imports | 4,729 ELF files in the same roots | 1 file gains a heuristic detection through its import table and it is a Kali-shipped offensive tool; `sudo` (ptrace + `process_vm_*`) stays at 6 |
 | static throughput | 1.3 MB binary | 44 MB/s with fuzzy hashing, 180 MB/s without |
 | stego false positives | 70,102 benign text artifacts under `/usr/share/doc` and `/usr/lib/python3/dist-packages` | 70 detections (0.10 %), 348 legitimate uses excused; 0 of 294 text files in the Windows tool set |
 | fusion | 349 files, the Windows tool set | 0 fused-only detections, 0 new false positives |

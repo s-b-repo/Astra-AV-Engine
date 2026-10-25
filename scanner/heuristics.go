@@ -5,6 +5,7 @@ import (
 	"debug/pe"
 	"encoding/binary"
 	"fmt"
+	"github.com/cau-edr/cau/scanner/static"
 	"os"
 	"sort"
 	"strings"
@@ -102,6 +103,10 @@ type HeuristicResult struct {
 	Threshold int
 	// IsPE reports whether the file parsed as a PE image (import scanning ran).
 	IsPE bool
+	// IsELF reports whether the file parsed as an ELF image (its undefined
+	// dynamic symbols, or a kernel module's undefined .symtab entries, were
+	// scanned as imports).
+	IsELF bool
 	// Skipped is a non-empty reason when the file was deliberately not scanned
 	// (too large). A skipped file is neither detected nor an error.
 	Skipped string
@@ -174,6 +179,7 @@ const (
 	catSandboxDetect = "Sandbox Detection"
 	catUnixShell     = "Unix Shell Reference"
 	catDownloadTool  = "Download Tool Reference"
+	catKernelRootkit = "Kernel Rootkit"
 )
 
 // categoryCaps bounds each category's contribution. Categories not listed are
@@ -202,6 +208,7 @@ var categoryCaps = map[string]int{
 	catRansomFamily:  3,
 	catVMDetect:      2,
 	catSandboxDetect: 3,
+	catKernelRootkit: 6,
 }
 
 const defaultCategoryCap = 4
@@ -256,6 +263,7 @@ var categoryTechniques = map[string]string{
 	catSandboxDetect: "T1497.001", // Virtualization/Sandbox Evasion: System Checks
 	catUnixShell:     "T1059.004", // Unix Shell
 	catDownloadTool:  "T1105",     // Ingress Tool Transfer
+	catKernelRootkit: "T1014",     // Rootkit
 }
 
 // CategoryTechnique returns the ATT&CK technique id a heuristic category is
@@ -290,9 +298,34 @@ func Categories() []CategoryScore {
 	return out
 }
 
-// suspiciousAPIs maps PE import names to a category and weight. Names must be
-// the exact exported symbol, which for the A/W API pairs means both spellings.
+// suspiciousAPIs maps PE and ELF import names to a category and weight. Names
+// must be the exact exported symbol, which for the Windows A/W API pairs means
+// both spellings. The Linux entries are deliberately few: an ELF import table
+// names libc, and libc is not evidence. What is listed is what a debugger,
+// an injector or a kernel rootkit cannot do without.
 var suspiciousAPIs = map[string]indicator{
+	// Linux user space: cross-process memory and control (debuggers score
+	// here too, the same documented class as OllyDbg on Windows)
+	"ptrace":            {catInjection, 2},
+	"process_vm_writev": {catInjection, 2},
+	"process_vm_readv":  {catInjection, 1},
+	"pidfd_getfd":       {catInjection, 1},
+	// Linux kernel modules: what a rootkit needs to find and patch the
+	// syscall table or hook functions. Ordinary drivers import none of them.
+	"kallsyms_lookup_name":     {catKernelRootkit, 3},
+	"register_kprobe":          {catKernelRootkit, 2},
+	"register_kretprobe":       {catKernelRootkit, 1},
+	"register_ftrace_function": {catKernelRootkit, 2},
+	"ftrace_set_filter_ip":     {catKernelRootkit, 2},
+	"set_memory_rw":            {catKernelRootkit, 2},
+	"set_memory_x":             {catKernelRootkit, 1},
+	"lookup_address":           {catKernelRootkit, 1},
+	"text_poke":                {catKernelRootkit, 3},
+	"text_poke_bp":             {catKernelRootkit, 3},
+	"stop_machine":             {catKernelRootkit, 1},
+	"sys_call_table":           {catKernelRootkit, 3},
+	"find_task_by_vpid":        {catKernelRootkit, 1},
+
 	// Process injection
 	"VirtualAllocEx":       {catInjection, 2},
 	"WriteProcessMemory":   {catInjection, 3},
@@ -538,6 +571,13 @@ func ScanHeuristicsData(filePath string, data []byte, opts HeuristicOptions) Heu
 
 	imports, isPE := peImports(data)
 	result.IsPE = isPE
+	source := "PE Import"
+	if !isPE {
+		if elf, ok := elfImports(data); ok {
+			imports, source = elf, "ELF Import"
+			result.IsELF = true
+		}
+	}
 
 	// Imports: one match per distinct API.
 	seenAPI := make(map[string]bool)
@@ -551,7 +591,7 @@ func ScanHeuristicsData(filePath string, data []byte, opts HeuristicOptions) Heu
 			Indicator: name,
 			Pattern:   name,
 			Category:  info.Category,
-			Source:    "PE Import",
+			Source:    source,
 			Score:     info.Score,
 			Hits:      1,
 			Technique: categoryTechniques[info.Category],
@@ -644,6 +684,20 @@ func peImports(data []byte) ([]string, bool) {
 		names = append(names, name)
 	}
 	return names, true
+}
+
+// elfImports returns the undefined symbol names of an ELF image through the
+// static package's bounds-checked parser. ok is false for non-ELF input or an
+// unparseable header.
+func elfImports(data []byte) ([]string, bool) {
+	if !static.IsELF(data) {
+		return nil, false
+	}
+	e, err := static.ParseELF(data)
+	if err != nil {
+		return nil, false
+	}
+	return e.Imports, true
 }
 
 // ── Raw string extractor ─────────────────────────────────────────────────────
