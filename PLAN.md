@@ -1,4 +1,4 @@
-# Astra AV — v2 Plan
+# CAU EDR — v2 Plan
 
 ## Agent scope note (for human and AI contributors)
 
@@ -20,7 +20,7 @@ fixtures. The rules, in priority order:
 
 Two artifacts, two audiences, two licenses.
 
-| | `astrav2` (this repo) | `astra-console` (proprietary) |
+| | `cau` (this repo) | `cau-console` (proprietary) |
 |---|---|---|
 | License | MIT | Commercial, per protected host |
 | What it is | The **engine**: detection content, scanning library, MCP server, evaluation harness | The **control plane**: fleet management, policy, detection lifecycle, response, model registry, dashboard |
@@ -215,7 +215,7 @@ Highest differentiation per line of code. No competitor ships an AV *engine* as 
 `revula`, `Reversecore_MCP`, `NexusCore_MCP` are RE/debugging toolchains.
 
 ```
-cmd/astra-mcp/          # stdio primary, streamable-HTTP optional
+cmd/cau-mcp/          # stdio primary, streamable-HTTP optional
 internal/mcp/           # tools / resources / prompts registry
 internal/mcp/sandbox.go # path allowlist, size caps, timeouts, TOCTOU guards
 ```
@@ -224,8 +224,8 @@ internal/mcp/sandbox.go # path allowlist, size caps, timeouts, TOCTOU guards
 score, which offset), `yara_test_rule` (against corpus, returns FP/FN), `generate_yara_rule`,
 `list_signatures`, `add_signature`, `mitre_coverage`, `evasion_report`.
 
-**Resources**: `astra://rules/{name}`, `astra://signatures`, `astra://corpus/{sample}/report`,
-`astra://model/{name}/card`.
+**Resources**: `cau://rules/{name}`, `cau://signatures`, `cau://corpus/{sample}/report`,
+`cau://model/{name}/card`.
 
 **Prompts**: `triage_sample`, `rule_review` (FP risk of a proposed rule), `evasion_assessment`.
 
@@ -317,7 +317,7 @@ Static engines lose to packing. Each tier earns its place only where the previou
 
 The credibility engine. Nobody ships this, and it is defensible purely on being honest.
 
-- [ ] `astra evasion-report --file X` → minimum patch set that flips the verdict, per
+- [ ] `cau evasion-report --file X` → minimum patch set that flips the verdict, per
       detector, with evasion distance.
 - [ ] Adversarial harness implementing the published state of the art:
       XAI-guided function-call replacement via integrated gradients (94–100% success),
@@ -346,7 +346,7 @@ fork, diff and audit detection content is the analyst-facing wedge.
 **2. Continuous public multi-vendor benchmark.**
 Automate the same public-corpus run against VirusTotal's multi-engine results on
 identical samples (VT API, hash-referenced manifests — raw samples never committed):
-place Astra next to Falcon in the same table, with evasion distance and method
+place CAU next to Falcon in the same table, with evasion distance and method
 disclosure, published weekly. The market has ATT&CK Evaluations (slow, vendor-approved,
 closed method) and marketing decks; it has no open one. The *methodology* being published
 is what makes it defensible.
@@ -383,7 +383,7 @@ with the same FP/FN harness as the static content, gated in CI.
 
 **7. eBPF Linux sensor.**
 Linux dominates servers and CI, which is exactly where the OSS engine already deploys as
-scan nodes. An eBPF-CO-RE collector (`cmd/astra-sensor-ebpf`) yields endpoint telemetry
+scan nodes. An eBPF-CO-RE collector (`cmd/cau-sensor-ebpf`) yields endpoint telemetry
 without a kernel driver — the position CrowdStrike cannot copy into an MIT engine and
 their Linux agent's weight makes the agent-footprint numbers a real sales point. Feeds
 the behavior engine (#6) and the Threat Graph (#8).
@@ -439,7 +439,7 @@ own public surfaces (README architecture, issue #56, issue #40) document gaps th
 double as both the wedge list for this plan and the acceptance-criteria traps an
 open EDR must not repeat, this one included. Facts stay class-level:
 
-| Gap | Public evidence | Astra's owning row |
+| Gap | Public evidence | CAU's owning row |
 |---|---|---|
 | Windows-only agent | single-agent docs, no Linux/macOS/CI sensor | Linux-first scope plus the platform rows — the surface no one covers |
 | User-mode injection architecture | README: "Injected DLL … hooks API calls", plus a driver-borne "Loader for Injected DLL" into each new process | eBPF/LSM-first sensor with a no-injection pledge — injection primitives in a sensor are its own attack class |
@@ -458,7 +458,7 @@ open EDR must not repeat, this one included. Facts stay class-level:
   the sensor source for injection-pattern APIs as a build gate — the pledge is
   enforced by the build, not by prose.
 - [ ] Measured rivalry: when the third-party scoring gate lands, OpenEDR's policy and
-  pattern artifacts run through the same Phase 1 fixtures alongside Astra's own —
+  pattern artifacts run through the same Phase 1 fixtures alongside CAU's own —
   published numbers, not opinions.
 - [ ] Fork-lineage audit: whatever the Phase 0 cleanup carried over from the original
   engine, every trap above gets an explicit acceptance-criteria checkbox in the fork's
@@ -961,9 +961,9 @@ there are two sinks, each with its own key.
 | Path element | What it does |
 |---|---|
 | Clove bundling | the agent batches event cloves into shipments; padding to size classes and timing jitter/mix budgets shrink traffic correlation |
-| Per-sink end-to-end encryption | the dashboard and the customer's Wazuh sink each receive an independently E2E-encrypted copy — Astra never holds the Wazuh sink's key, so Astra cannot read the customer's SIEM events |
-| Hop-layer separation | relays (Astra-operated, customer-owned fleet relays, or community relays) learn only that traffic passed and who their neighbors are; host identity rides the E2E layer only, never the hop layer |
-| Fleet relay mode | self-hosted relay mesh stays inside the customer network — the air-gapped deployment gets garlic routing with zero Astra transit |
+| Per-sink end-to-end encryption | the dashboard and the customer's Wazuh sink each receive an independently E2E-encrypted copy — CAU never holds the Wazuh sink's key, so CAU cannot read the customer's SIEM events |
+| Hop-layer separation | relays (CAU-operated, customer-owned fleet relays, or community relays) learn only that traffic passed and who their neighbors are; host identity rides the E2E layer only, never the hop layer |
+| Fleet relay mode | self-hosted relay mesh stays inside the customer network — the air-gapped deployment gets garlic routing with zero CAU transit |
 | Direct fallback | relay-mesh outage falls back to direct QUIC with a `transport: direct-fallback` label rendered in coverage — delivery never silently changes character |
 
 - [ ] `internal/garlic`: clove bundler (batching, size-class padding, jitter/mix
@@ -990,7 +990,7 @@ there are two sinks, each with its own key.
   into sink ingestion — a replayed batch cannot re-enter either sink.
 - [ ] Relay fairness: token buckets per source-relay mirror the peeler fairness rules
   — a flooded relay can't starve the fleet's transport, and DoS budgets benched in CI.
-- [ ] Self-hosted console note: customers who want *no* Astra-readable copies at all
+- [ ] Self-hosted console note: customers who want *no* CAU-readable copies at all
   point both sinks at self-hosted infrastructure; the dashboard path exists for those
   who don't. Both paths are rendered in pricing and the licensing rows, not hidden.
 - [ ] `cau selftest` gains a transport row: mesh-hop aliveness, hop-crypto handshake
@@ -1291,7 +1291,7 @@ and personal.
 ## Cloud-adjacent planes — egress and transfer sweep
 
 Cloud fleets silently face several planes the cross-system sweep hinted at but never
-enumerated. Most rows already use classes Astra taps — the additions are destinations,
+enumerated. Most rows already use classes CAU taps — the additions are destinations,
 lineages and config diffs, not new telemetry volumes.
 
 | Surface | Attack class | Detection / control |
@@ -1469,18 +1469,18 @@ hosts actually are — with honesty about what EOL means, and without laundering
 
 ---
 
-# Astra Console — paid tier
+# CAU Console — paid tier
 
 **License: per protected host.** One console, four agent types.
 
 ## Agent types
 
-**1. Sensor agents** — `astra-sensor`, resident. Everything stateful lives here: real-time
+**1. Sensor agents** — `cau-sensor`, resident. Everything stateful lives here: real-time
 and scheduled scanning, filesystem/process event subscription, memory scanning, quarantine,
 restore, process kill. *This is where Episodes 8+ (fileless, AMSI/ETW tampering, memory)
 land, because it cannot live in a stateless OSS scanner.* Metered entity.
 
-**2. Scan nodes** — `astra-scanner`, stateless container workers. Bulk scanning of repos,
+**2. Scan nodes** — `cau-scanner`, stateless container workers. Bulk scanning of repos,
 CI pipelines, artifact stores, blob storage. Central queue, work-stealing, result cache
 keyed by SHA256.
 
@@ -1489,7 +1489,7 @@ MCP server. Console governs: registration, per-agent tool allowlists, rate limit
 caps, output sanitization (prompt-injection defense on agent results), quality scoring
 against gold labels, revocation.
 
-**4. Autonomous detection agents** — Astra-run. Continuously hunt: mine new samples, cluster
+**4. Autonomous detection agents** — CAU-run. Continuously hunt: mine new samples, cluster
 by imphash/TLSH, propose YARA and capa rules, propose quarantine. **Human-in-the-loop
 approval gate.** A proposal is promoted only if it beats the incumbent on a held-out corpus
 with measured FP/FN. The verification gate is the contribution, not the generation.
@@ -1581,7 +1581,7 @@ become implants, and the exclusion list outlives every review that approved it.
 ## Repo layout
 
 ```
-astrav2/                     # MIT — the engine (module github.com/cau-edr/cau, binary `cau`)
+cau/                         # MIT — the engine (module github.com/cau-edr/cau, binary `cau`)
   main.go, cmd_*.go          # CLI: scan, hash, cluster, add-hash, add-fuzzy, eval
   scanner/                   # engine (single-pass), hash DB, YARA, heuristics
   scanner/static/            # structural pass: PE parser, entropy, fuzzy hashes, anomalies
@@ -1591,12 +1591,12 @@ astrav2/                     # MIT — the engine (module github.com/cau-edr/cau
   internal/eval/             # corpus harness, metrics, diff, gates (+ scannerbridge)
   rules/, signatures/        # bundled detection content
   corpus/smoke/, baselines/  # committed smoke corpus, baseline, gate policy
-  cmd/astra-mcp/             # MCP server (Phase 3, planned)
+  cmd/cau-mcp/             # MCP server (Phase 3, planned)
   evasionsuite/              # Episode 7 adversarial harness (Phase 6, planned)
 
-astra-console/               # proprietary
-  cmd/astra-sensor/          # resident agent (licensed, enforcing)
-  cmd/astra-scanner/         # scan node
+cau-console/               # proprietary
+  cmd/cau-sensor/          # resident agent (licensed, enforcing)
+  cmd/cau-scanner/         # scan node
   internal/controlplane/     # API, policy engine, detection content, model registry
   web/                       # dashboard
 ```
@@ -1696,7 +1696,7 @@ axis where open beats installed-agent fleets without needing their scale.
 ## Standards program — writing the bar, not meeting it
 
 The ten-path defines becoming the layer the field plugs into; this defines what "plugged
-in" means concretely: specifications Astra publishes that are *stricter than industry
+in" means concretely: specifications CAU publishes that are *stricter than industry
 practice*, each shipping with a conformance suite from day one — because a standard
 nobody can test is marketing.
 
@@ -1714,16 +1714,16 @@ nobody can test is marketing.
 
 - [ ] `specs/` directory: every standard is a versioned spec document plus a reference
   validator, semvered so adopters never churn.
-- [ ] Conformance as the credibility engine: the same suite that gates Astra's CI runs
+- [ ] Conformance as the credibility engine: the same suite that gates CAU's CI runs
   as `cau verify-spec <artifact>` — adopters self-test without shipping anything here.
 - [ ] Adoption track: three early integrations per spec (one SIEM sink, one fleet tool,
   one eval harness) landed through the co-op's open-governance route, never through
   NDA-style silence.
 - [ ] Interop anchoring: every spec imports and exports Sigma, STIX/TAXII and ECS where
   they overlap — strictness is layered on the norms that exist, never cut off from them.
-- [ ] Honest boundary: a standard only Astra meets is a requirement, not a standard.
+- [ ] Honest boundary: a standard only CAU meets is a requirement, not a standard.
   Adoption re-checks ride the same CI gate as the inversion table — a spec whose only
-  passing conformance is Astra's own regresses to "requirement," and the coverage
+  passing conformance is CAU's own regresses to "requirement," and the coverage
   render says so in place of the claim.
 
 ---
@@ -1737,7 +1737,7 @@ emulation scoring (external, technique-level, per-behavior), the telemetry-surve
 internal regression corpora — the thing most products actually gate on. Honest grades
 for this plan's execution at the done-right standard:
 
-| Axis | Industry practice | Astra at standard | Grade |
+| Axis | Industry practice | CAU at standard | Grade |
 |---|---|---|---|
 | Coverage definition | technique matrices, Windows-clean, mostly post-hoc | full Linux matrix with per-technique analytic owner + gap-marks | A on Linux; nothing comparable market-wide |
 | Validation independence | external emulation ranges running adversary traces | own synthetic blue/red fixtures, CI-gated | B — below the evals' standard until the third-party scoring gate lands |
@@ -1973,10 +1973,10 @@ numbers:
 
 **3. The product's own CVE credibility.**
 - [ ] `SECURITY.md`, coordinated disclosure with embargo; `govulncheck` runs with
-  lint/build/test in the CI stage; SBOM is consumed, not only produced, so Astra's own
+  lint/build/test in the CI stage; SBOM is consumed, not only produced, so CAU's own
   dependencies live under the same supply gates it enforces elsewhere.
 - [ ] A bypass of this product, when found, lands as a regression fixture the same day
-  as its fix — the Phase 11 bypass-corpus rule runs at Astra first.
+  as its fix — the Phase 11 bypass-corpus rule runs at CAU first.
 
 **4. The internal-corpus dependency.**
 - [ ] Every publicly planned detection names its public evidence source (MISP, abuse.ch,
@@ -2106,7 +2106,7 @@ AirDrop/Nearby-share mounts).
 |---|---|
 | MDM telemetry ingest | one standards-aligned adapter per supported MDM — attestation state, compliance posture, lost/stolen status, OS version drift — ingested as fleet metadata; incidents involving a user route to the right workstation + mobile posture at once |
 | Mobile approach to workstation | when a mobile tethers via USB/BT and injects HID or storage, the device-plane rows already own it; the mobile approach adds *attribution* (which mobile device fingerprint joined the workstation) |
-| Mobile OS attestation anchoring | PlayIntegrity/Attestation KEY / DeviceCheck receipts flow through as attestation evidence beside TPM quotes — the attestation plane extends to mobile without requiring Astra to run on mobile |
+| Mobile OS attestation anchoring | PlayIntegrity/Attestation KEY / DeviceCheck receipts flow through as attestation evidence beside TPM quotes — the attestation plane extends to mobile without requiring CAU to run on mobile |
 | Lost-device policy routing | an alert on a workstation whose user's mobile is "lost" per MDM escalates automatically — cross-plane evidence that already exists is finally used |
 | Explicit non-goal | no mobile agent in v1. The surface is wide, the ecosystems ship their own agents, and shipping half-coverage would violate the "complete for its persona" rule. The MDM integration is where the plan commits. |
 
@@ -2251,7 +2251,7 @@ observability contract so what the plan promises can be seen in one place.
 
 | Surface | Content |
 |---|---|
-| `/metrics` endpoint | Prometheus/OpenMetrics on every daemon: engine, sensor, scanner, console, relay. Metric name schema is a published spec (`astra_<component>_<class>_<unit>`), semver'd like every other spec. |
+| `/metrics` endpoint | Prometheus/OpenMetrics on every daemon: engine, sensor, scanner, console, relay. Metric name schema is a published spec (`cau_<component>_<class>_<unit>`), semver'd like every other spec. |
 | OpenTelemetry traces | end-to-end traces for every scan, every event path, every console query — opt-in on sensors to respect the agent-footprint budget, default-on in server components. |
 | Structured logs | one JSON log schema (one more entry in the event-model registry), the sink matrix carries it like any other sink. |
 | Honesty-index export | the standards program's honesty-index renders as a JSON artifact on the `/metrics` tree beside the counters — the thing buyers and auditors look at is the same thing operators look at. |
@@ -2422,14 +2422,14 @@ operator-side guarantees that make the plan ship-worthy.
 
 The ten-path commits to a third-party scoring gate; the Phase 7 continuous
 multi-vendor benchmark covers commercial labels. This section commits to the
-*open-peer* benchmark that the OSS persona cares most about: how Astra compares
+*open-peer* benchmark that the OSS persona cares most about: how CAU compares
 against the open stack the market actually uses. Published numbers, same corpora,
 same gates, no asterisks.
 
 | Peer | Position in the OSS stack | What we measure |
 |---|---|---|
 | ClamAV | the default file scanner; largest install base; signature-driven | FP/FN on the Phase 1 corpus, throughput per MB, memory per worker, pack-size and update-latency |
-| YARA / YARA-X | rule engines; YARA-X is the modern Rust rewrite | compile-time, scan-time, memory, feature-coverage per rule — Astra uses go-yara; this is apples-to-apples per rule set |
+| YARA / YARA-X | rule engines; YARA-X is the modern Rust rewrite | compile-time, scan-time, memory, feature-coverage per rule — CAU uses go-yara; this is apples-to-apples per rule set |
 | Suricata / Zeek | network-side peers; cleartext-plane and netguard rows are their adjacent surface | cleartext detection, protocol classification depth, cross-plane correlation deltas |
 | OSQuery | host-state query engine; the inventory rows share a lot of its shape | tap-sum footprint vs. OSQuery's agent, inventory freshness, query latency at scale |
 | Falco | eBPF-based runtime security; closest architectural peer | per-rule cost, false-positive rate on the Phase 1 corpus, coverage overlap and gaps |
@@ -2597,7 +2597,7 @@ localization glossary (above) uses as canonical sources.
   backlog rather than shipping as a promise.
 - **Standards-program dilution.** Writing standards nobody adopts turns strict specs
   into private requirements. Mitigation: the standards-program's own honest-boundary
-  rule — a spec with no non-Astra passing conformance regresses to "requirement".
+  rule — a spec with no non-CAU passing conformance regresses to "requirement".
 - **Autonomous-agent drift.** The type-4 agents can expand their effective scope
   through unaudited corner cases. Mitigation: the agent-governance red-team runs on
   every release train, and the shutdown switch is a one-command operator action.
@@ -2606,7 +2606,7 @@ localization glossary (above) uses as canonical sources.
   footprint sales point (Phase 7 #7) erodes release by release. Mitigation: those two
   design-docs are blocking for Console-Phase B.
 - **Open-matrix freerider risk.** Publishing the honesty-index invites free-riders who
-  publish Astra's methodology minus the measurement discipline. Mitigation: the
+  publish CAU's methodology minus the measurement discipline. Mitigation: the
   methodology itself is open and conformance is the enforcement — "freerider" is
   what the field will call anyone who publishes without passing the suite.
 - **Over-centralization of the console.** The console accrues identity, deception,

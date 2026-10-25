@@ -7,6 +7,9 @@ cut a tagged release yet, so everything is under Unreleased.
 ## Unreleased
 
 ### Added
+- Documentation set under `docs/` (installation, CLI reference, detectors,
+  output formats, detection content, evaluation, library usage, architecture,
+  limitations, contributing); the README is now the landing page.
 - **Detection fusion lattice** (`scanner/fusion`): every detector's result is a
   source with evidence labels and ATT&CK / NOVEL ids; the strongest counts in
   full, sources at or above 0.4 of their own threshold corroborate at half
@@ -38,6 +41,8 @@ cut a tagged release yet, so everything is under Unreleased.
   `--jobs` concurrency, resource discovery relative to the install prefix.
 
 ### Changed
+- Remaining "Astra" naming in the plan, layout and ignore rules renamed to
+  CAU; only the historical origin and the GitHub repository name keep it.
 - YARA runs in-process through go-yara with a per-scan timeout; rules are
   compiled once; rule meta, namespaces and warnings are kept.
 - Heuristics score once per pattern with category caps and a weak-category

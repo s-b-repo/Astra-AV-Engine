@@ -1,0 +1,125 @@
+# Output formats
+
+`cau scan` writes one report per run in one of three formats. The text format
+is for people; JSON and SARIF are for machines. Both machine formats are
+written even when the run fails (with `run_error` set and exit code 3), so a
+pipeline always gets a document, and the stderr banner never enters them.
+
+Rules that apply to every format:
+
+- **Never trust the input.** Every string that came from a scanned file or a
+  signature database is length-bounded before it reaches the output (matched
+  blobs to 256 bytes, hashes to 128 characters, messages to 1024 runes, with
+  an explicit truncation marker and the original length), invalid UTF-8 is
+  replaced, and JSON HTML escaping stays on so a hostile file name cannot
+  inject markup into a web UI.
+- **Reporters never fail on suspicious content.** They fail only if the
+  output cannot be encoded or written.
+- **Thresholds are recorded.** Each result carries the threshold it was
+  scored against, so a report produced with `--heuristic-threshold 5` says
+  `score 6 / threshold 5`, not the default.
+
+## Text
+
+One block per finding, a one-line `[CLEAN]` or `[~] LOW SUSPICION` for
+everything else, then a summary. Markers:
+
+| Marker | Meaning |
+|---|---|
+| `[!] DETECTED (Hash)` / `(YARA)` | MALICIOUS, with the signature or the rule, its meta and the matched strings at their offsets |
+| `[!] DETECTED (Heuristics)` / `(Static)` / `(Stego)` | SUSPICIOUS, with the score, the threshold and the categories, anomaly classes or codepoints responsible, each with its technique |
+| `[!] DETECTED (Fusion)` | SUSPICIOUS by corroboration: no single detector crossed, the agreeing sources are listed with their ratios and evidence |
+| `[+] Fusion` | the fused view of a file some detector already flagged, printed only when at least two sources agreed |
+| `[~] LOW SUSPICION` | sub-threshold evidence, with the score and the classes seen |
+| `[~] SKIPPED` | a pass that did not run on this file (too large, not text), with the reason |
+| `[ERR]` | the file could not be scanned |
+
+The summary lists files scanned, detections per detector, errors and the exit
+code with its reason.
+
+## JSON
+
+`--format json` writes a single self-describing document.
+`schema_version` is `1.2.0` and follows a strict contract: a patch bump
+changes nothing a consumer sees; a minor bump adds optional fields or enum
+values; only a major bump removes, renames or retypes anything. Consumers
+should ignore unknown fields.
+
+```jsonc
+{
+  "schema_version": "1.2.0",
+  "tool": { "name": "CAU EDR", "version": "v0.4.0", "tagline": "..." },
+  "generated_at": "2026-10-25T09:47:00Z",
+  "root": "./dist",                      // present when --dir was the only target
+  "summary": {
+    "files_scanned": 3, "hash_detections": 0, "yara_detections": 1,
+    "heuristic_detections": 1, "static_detections": 0, "stego_detections": 1,
+    "fusion_detections": 0,              // suspicious by corroboration only
+    "errors": 0, "elapsed_ms": 12,
+    "heuristic_threshold": 7, "static_threshold": 8, "stego_threshold": 4,
+    "verdict": "malicious", "fail_on": "malicious",
+    "exit_code": 1, "exit_reason": "exit 1: 1 file(s) matched a hash signature or YARA rule"
+  },
+  "run_error": "...",                    // only when the run itself failed
+  "files": [ { ... } ]
+}
+```
+
+Per file:
+
+| Field | Content |
+|---|---|
+| `path`, `size`, `scan_time_ms`, `warnings[]`, `error` | identity and bookkeeping; `verdict` is `clean`, `suspicious`, `malicious` or `error` |
+| `hashes` | `md5`, `sha1`, `sha256` |
+| `hash_match` | `type`, `hash`, `threat` when a signature matched |
+| `yara[]` | `rule`, `namespace`, `tags[]`, `meta[]` as key/value pairs in rule order, `strings[]` with `name`, `offset`, `data_hex`, `preview`, `truncated`, `length`, `xor_key` |
+| `heuristics` | `score`, `threshold`, `detected`, `is_pe`, `skipped`, `categories[]` (`category`, `raw`, `applied`, `cap`, `weak`, `technique`), `matches[]` (`indicator`, `category`, `source`, `pattern`, `score`, `hits`, `examples[]`, `technique`) |
+| `static` | `score`, `threshold`, `detected`, `entropy`, `high_entropy_fraction`, `tlsh`, `ssdeep`, `imphash`, `pe` (format, machine, subsystem, timestamp, entry point and section, imports, DLLs, sections with permissions and entropy, overlay, packer with evidence, Rich header, signature with the certificate chain and `verified: false` plus a note, debug directory), `anomalies[]` (`class`, `category`, `score`, `detail`, `technique`), `categories[]`, `fuzzy_matches[]` (`type`, `hash`, `threat`, `distance`, `score`) |
+| `stego` | `score`, `threshold`, `detected`, `is_text`, `encoding`, `skipped`, counts `suspicious` / `benign` / `info`, `longest_run`, `ascii_carrier`, `codepoints[]` (`codepoint`, `name`, `class`, `count`, `benign_context`, `first_offset`, `first_line`, `excuses{}`, `examples[]`), `findings[]` (`class`, `score`, `detail`, `technique`, `novel`) |
+| `fusion` | `tier`, `score`, `threshold`, `confidence`, `agreed[]`, `techniques[]`, `novel[]`, `corroborated`, `explanation`, `sources[]` (`name`, `role`, `hit`, `score`, `threshold`, `ratio`, `weight`, `counted`, `skipped`, `evidence[]` with `label`, `detail`, `technique`, `novel`, `weight`) |
+
+Verdict precedence per file: `error` when the file could not be read or a
+pass failed on it, `malicious` on a hash or YARA hit, `suspicious` on a
+heuristic, static or stego breach or a corroborated fused verdict, else
+`clean`. The summary verdict is the strongest per-file verdict, with `error`
+reserved for a run that could not execute.
+
+## SARIF
+
+`--format sarif` writes SARIF 2.1.0 for GitHub code scanning, GitLab, Azure
+DevOps, DefectDojo and similar. One run, one driver, a sorted rule table and
+one result per finding.
+
+| Rule id | Level | Produced by |
+|---|---|---|
+| `hash/<threat>` | error | a hash-signature hit |
+| `yara/<namespace>/<rule>` | error | a YARA match; the rule carries the description, tags, threat level and author |
+| `heuristic/score` | note | a heuristic breach, with every indicator in `properties.indicators` |
+| `static/score` | note | a static breach, with the anomalies, imphash, packer and TLSH in properties |
+| `stego/zero-width`, `stego/bidi-control`, `stego/tag`, `stego/variation-selector` | note | one result per scored stego class, with a byte-offset region (`byteOffset`, `byteLength`, `startLine`) at the first hidden codepoint and the modifiers in properties |
+| `fusion/corroborated` | note | a fused verdict reached by corroboration, with the agreeing sources, techniques and the one-line explanation |
+| `scan/error` | warning | a file that could not be scanned: a coverage gap, not a clean bill of health |
+
+Every result carries a `sha256/v1` partial fingerprint so a code-scanning UI
+recognises the same file when it moves. With `--dir`, artifact URIs are
+relative to the scan root through `%SRCROOT%`. Library users can change the
+levels (`WithSARIFLevels`) or drop the SUSPICIOUS-tier and error results
+(`WithSARIFHeuristics(false)`, `WithSARIFScanErrors(false)`).
+
+## Exit-code policy
+
+The policy is pure: the same input always yields the same code.
+
+| Code | Condition |
+|---|---|
+| 3 | the run could not execute |
+| 2 | at least one file could not be scanned (unless `--no-fail-on-scan-error`) |
+| 1 | a finding at or above the `--fail-on` level |
+| 0 | otherwise, including an empty directory |
+
+`--fail-on` levels: `none` (findings never fail), `malicious` (hash or YARA;
+the default), `heuristic` (also heuristic, static or stego breaches and
+corroborated fused verdicts), `clean` (also any sub-threshold observation).
+An unknown level falls back to `malicious`: a typo must never silently
+disable failure. The reason is printed on stderr and recorded in both machine
+formats (`exit_reason`, `exitCodeDescription`).
