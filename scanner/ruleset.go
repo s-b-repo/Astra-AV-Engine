@@ -430,3 +430,7 @@ func namespaceFromFileName(path string) string {
 	base := filepath.Base(path)
 	return reInvalidNamespaceChars.ReplaceAllString(strings.TrimSuffix(base, filepath.Ext(base)), "_")
 }
+
+// RuleFiles returns every .yar/.yara file at path (a file, or a directory
+// walked recursively), in the deterministic order the compiler loads them.
+func RuleFiles(path string) ([]string, error) { return collectRuleFiles(path) }

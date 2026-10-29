@@ -117,7 +117,13 @@ elf, err := static.ParseELF(data)         // same rules; elf.Imports, elf.Import
 ```
 
 `scanner.CategoryTechnique(category)` and `scanner.Categories()` expose the
-heuristic category → ATT&CK map.
+heuristic category → ATT&CK map; `static.Classes()` and `stego.Classes()`
+the anomaly and finding class catalogs with weights and techniques;
+`ys.RuleInfos()` the compiled rules with namespace, tags and meta
+(`RuleInfo.MetaTechnique()` splits `mitre_attack`). Inside the module,
+`internal/coverage.Build` turns those into the ATT&CK matrix and
+`internal/rulelint.Lint` runs the rule checks; `internal/attack` carries
+technique names.
 
 ## Fusion on your own sources
 

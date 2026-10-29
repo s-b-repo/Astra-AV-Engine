@@ -215,11 +215,9 @@ func ValidateFuzzy(typ, digest string) (string, string, error) {
 	h := strings.TrimSpace(digest)
 	switch t {
 	case FuzzyTLSH:
-		p, err := parseTLSH(h)
-		if err != nil {
+		if _, err := parseTLSH(h); err != nil {
 			return "", "", err
 		}
-		_ = p
 		if len(h) == 72 {
 			h = h[2:]
 		}
@@ -269,7 +267,14 @@ func (db *FuzzyDB) Add(e FuzzyEntry) error {
 	}
 	entry := FuzzyEntry{Type: t, Hash: h, ThreatName: name, Line: e.Line}
 	if t == FuzzyTLSH {
-		entry.parsed, _ = parseTLSH(h)
+		// h passed ValidateFuzzy above, so this parse cannot fail; guard it
+		// anyway so a future change to normalisation cannot silently store a
+		// nil digest that would never match.
+		p, perr := parseTLSH(h)
+		if perr != nil {
+			return fmt.Errorf("internal: validated TLSH %q failed to parse: %w", h, perr)
+		}
+		entry.parsed = p
 	}
 	if t == FuzzyImphash {
 		db.byImp[h] = len(db.entries)

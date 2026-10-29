@@ -67,21 +67,24 @@ hit. Both rules are tested.
 ## Repository layout
 
 ```
-main.go, cmd_eval.go, cmd_static.go, resources.go
+main.go, cmd_eval.go, cmd_static.go, cmd_coverage.go, cmd_rules.go, resources.go
                        CLI commands and resource discovery
 scanner/               Engine (single read), signature DB, YARA, heuristics, fuse.go
 scanner/static/        PE and ELF parsers, entropy, fuzzy hashes, anomalies, packers, Authenticode, clustering
 scanner/stego/         invisible-codepoint pass
 scanner/fusion/        the fusion lattice
-internal/report/       text / JSON / SARIF reporters and the exit-code policy
+internal/report/       text / JSON / SARIF / OCSF reporters and the exit-code policy
+internal/coverage/     ATT&CK coverage matrix, expectation gate, Navigator layer
+internal/rulelint/     YARA rule linter
+internal/attack/       ATT&CK technique names and tactics for the ids the content uses
 internal/eval/         corpus manifest, runner, metrics, diff, regression policy
 internal/eval/scannerbridge/
                        adapts the scanner to the harness (the only place both meet)
 rules/, signatures/    bundled detection content
 corpus/smoke/          committed synthetic corpus
-baselines/             baseline report and gate policy
+baselines/             baseline report, gate policy, ATT&CK coverage expectation
 docs/                  these pages
-.github/workflows/     lint, build, race tests, corpus validation, gate, SARIF self-scan, releases on tags
+.github/workflows/     lint, build, race tests, rule lint, coverage gate, corpus validation, eval gate, SARIF/OCSF self-scan, releases on tags
 ```
 
 ## The engine / console boundary

@@ -43,12 +43,16 @@ Usage:
   cau add-hash  [flags]                append a hash signature to the database
   cau add-fuzzy [flags]                append a TLSH / ssdeep / imphash signature
   cau eval      <subcommand> [flags]   corpus evaluation harness (see "cau eval help")
+  cau rules     lint|list [flags]      lint the YARA rules, or list them with their meta
+  cau coverage  [flags]                ATT&CK coverage matrix of the shipped content
+                                       (text, JSON or ATT&CK Navigator layer; gate with --expect)
   cau version                          print the version
 
 Scan examples:
   cau scan --file suspicious.exe
   cau scan --dir ./samples --format sarif --output cau.sarif
   cau scan ./build --format json --fail-on heuristic
+  cau scan ./dist --format ocsf --output findings.json   # OCSF Detection Findings
   cau scan --dir / --jobs 16 --no-heuristics --no-static --quiet
 
 Detectors: hash signatures, YARA, string/API heuristics, the static
@@ -87,6 +91,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdCluster(args[1:], stdout, stderr)
 	case "eval":
 		return cmdEval(args[1:], stdout, stderr)
+	case "rules":
+		return cmdRules(args[1:], stdout, stderr)
+	case "coverage":
+		return cmdCoverage(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintf(stdout, "%s %s\n", toolName, version)
 		return report.ExitOK
@@ -219,17 +227,27 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	// finish writes the report (even when the run failed, so JSON/SARIF
 	// consumers always get a document) and returns the exit code.
 	finish := func(in report.Input) int {
-		out := io.Writer(stdout)
 		if f.output != "" {
 			fh, err := os.Create(f.output)
 			if err != nil {
 				fmt.Fprintf(stderr, "[ERROR] cannot write %s: %v\n", f.output, err)
 				return report.ExitRunFailed
 			}
-			defer fh.Close()
-			out = fh
+			// Check the close error too: on a written file it can be the
+			// only sign of a truncated or failed flush.
+			werr := reporter.Write(fh, in)
+			cerr := fh.Close()
+			if werr != nil || cerr != nil {
+				fmt.Fprintf(stderr, "[ERROR] writing %s: %v %v\n", f.output, werr, cerr)
+				return report.ExitRunFailed
+			}
+			if in.RunError != nil {
+				fmt.Fprintf(stderr, "[ERROR] %v\n", in.RunError)
+			}
+			status("[*] %s", policy.Explain(in))
+			return policy.Code(in)
 		}
-		if err := reporter.Write(out, in); err != nil {
+		if err := reporter.Write(stdout, in); err != nil {
 			fmt.Fprintf(stderr, "[ERROR] writing report: %v\n", err)
 			return report.ExitRunFailed
 		}

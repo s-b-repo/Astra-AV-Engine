@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -588,4 +591,83 @@ func fileSize(path string) (int64, error) {
 		return 0, fmt.Errorf("%s is a directory", path)
 	}
 	return fi.Size(), nil
+}
+
+// RuleInfo describes one compiled rule: what the coverage matrix and the
+// rule linter need without scanning anything.
+type RuleInfo struct {
+	Name      string
+	Namespace string
+	Tags      []string
+	// Meta holds the rule's meta block with every value rendered as a
+	// string (integers in decimal, booleans as "true" / "false"), in
+	// declaration order via MetaOrder.
+	Meta      map[string]string
+	MetaOrder []string
+	Private   bool
+	Global    bool
+	// Strings counts the rule's string definitions.
+	Strings int
+}
+
+// MetaTechnique returns the ATT&CK technique id(s) a rule declares through
+// `mitre_attack`, `attack` or `technique` meta, split on commas and
+// whitespace. The same keys the fusion lattice reads.
+func (r RuleInfo) MetaTechnique() []string {
+	for _, key := range []string{"mitre_attack", "attack", "technique"} {
+		if v := strings.TrimSpace(r.Meta[key]); v != "" {
+			var out []string
+			for _, t := range strings.FieldsFunc(v, func(c rune) bool { return c == ',' || c == ' ' || c == ';' }) {
+				if t = strings.TrimSpace(t); t != "" {
+					out = append(out, t)
+				}
+			}
+			return out
+		}
+	}
+	return nil
+}
+
+// RuleInfos enumerates the compiled rules in namespace, then name order.
+func (ys *YaraScanner) RuleInfos() []RuleInfo {
+	if ys == nil || ys.rules == nil {
+		return nil
+	}
+	var out []RuleInfo
+	for _, r := range ys.rules.GetRules() {
+		info := RuleInfo{
+			Name:      r.Identifier(),
+			Namespace: r.Namespace(),
+			Tags:      r.Tags(),
+			Meta:      map[string]string{},
+			Private:   r.IsPrivate(),
+			Global:    r.IsGlobal(),
+			Strings:   len(r.Strings()),
+		}
+		for _, m := range r.Metas() {
+			var v string
+			switch x := m.Value.(type) {
+			case string:
+				v = x
+			case int:
+				v = strconv.Itoa(x)
+			case bool:
+				v = strconv.FormatBool(x)
+			default:
+				v = fmt.Sprint(x)
+			}
+			if _, dup := info.Meta[m.Identifier]; !dup {
+				info.MetaOrder = append(info.MetaOrder, m.Identifier)
+			}
+			info.Meta[m.Identifier] = v
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Namespace != out[j].Namespace {
+			return out[i].Namespace < out[j].Namespace
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }

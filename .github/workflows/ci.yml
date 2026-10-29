@@ -36,14 +36,22 @@ jobs:
       - name: Unit tests (race)
         run: make test-race
 
+      - name: Lint the bundled YARA rules
+        run: make lint-rules
+
+      - name: ATT&CK coverage gate and Navigator layer
+        run: make coverage
+
       - name: Corpus validation
         run: make eval-validate
 
       - name: Regression gate against baseline
         run: make eval-gate
 
-      - name: Scan the repository with itself (SARIF)
-        run: ./cau scan --dir . --format sarif --output cau.sarif --fail-on none --quiet
+      - name: Scan the repository with itself (SARIF and OCSF)
+        run: |
+          ./cau scan --dir . --format sarif --output cau.sarif --fail-on none --quiet
+          ./cau scan --dir . --format ocsf --output cau.ocsf.json --fail-on none --quiet
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -51,7 +59,10 @@ jobs:
           name: eval-and-sarif
           path: |
             eval-out/report.json
+            eval-out/attack-navigator.json
+            eval-out/attack-coverage.sarif
             cau.sarif
+            cau.ocsf.json
 
   release:
     name: release binaries

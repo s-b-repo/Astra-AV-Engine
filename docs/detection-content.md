@@ -43,7 +43,7 @@ and compiled in sorted order into one ruleset. Conventions the bundled
 | byte patterns are hex strings | a rule matching the *text* `"0x89,0x00"` can never fire on bytes; two such rules were rewritten |
 | `meta.threat_level` 1–5 | shown in reports and SARIF properties |
 | `meta.family` | the family the rule claims, used for per-family recall in the evaluation harness |
-| `meta.mitre_attack` (optional) | the ATT&CK technique id; the fusion lattice carries it into fused verdicts |
+| `meta.mitre_attack` | the ATT&CK technique id (comma-separated for several); the fusion lattice carries it into fused verdicts, `cau coverage` builds the matrix from it, OCSF output names it |
 | `meta.description`, `meta.author`, `meta.in_the_wild` | rendered in the text report and the SARIF rule |
 
 The bundled rules cover WannaCry, Mimikatz, LokiBot, shellcode prologues,
@@ -51,6 +51,11 @@ PowerShell download cradles and ransomware notes. Measured over Kali's
 `/usr/share/windows-resources` and `/usr/bin`, they fire on mimikatz, wce and
 PowerSploit, on one dual-use tool (`ophcrack`, which embeds mimikatz command
 strings), and on nothing else.
+
+`cau rules lint` checks all of the above plus compile diagnostics, technique
+id shape, strings under four bytes, hex written as text and trivially true
+conditions; `make lint-rules` runs it in CI and errors fail the build. `cau
+rules list` prints the compiled inventory with level, family and technique.
 
 For production coverage, point `--rules` at
 [Neo23x0/signature-base](https://github.com/Neo23x0/signature-base),

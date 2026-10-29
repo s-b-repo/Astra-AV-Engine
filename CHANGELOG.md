@@ -6,7 +6,69 @@ cut a tagged release yet, so everything is under Unreleased.
 
 ## Unreleased
 
+### Fixed
+- **wannacry YARA rule was case-sensitive** while the others carry `nocase`:
+  a case-folded sample evaded it. Surfaced by the new detection-robustness
+  harness and closed by adding `nocase` to its (highly specific) indicator
+  strings; the eval gate confirms no recall or false-positive change.
+- **ELF parser out-of-bounds read (panic on hostile input).** A relocatable
+  object whose `.symtab` declared a sub-minimum `sh_entsize` let the per-entry
+  guard pass while the parser read a fixed-size `Elf64_Sym`, panicking on a
+  table placed at end-of-file. `parseSymbols` now floors the stride to the
+  struct size, exactly as `parseDynamic` already did. Regression test:
+  `TestParseELFSymtabTinyEntsize`.
+- **Address-range overflow could hide content from the scanner.** PE
+  `sectionIndexForRVA` and ELF `vaToOffset` / `segmentIndexForVA` tested
+  `addr < base+size`, which wraps when a crafted section/segment range
+  overflows; a legitimate RVA/VA in such a range resolved to "not mapped" and
+  the imports/strings/entry there were silently skipped. Rewritten as the
+  non-wrapping `addr-base < size`.
+- **32-bit builds: file-controlled offsets could become negative indices.**
+  `rvaToOffset`, `parseDebug` (CodeView) and `gnuHashSymbolCount` now use
+  width-safe comparisons and bound the symbol offset, so a high offset is
+  rejected rather than indexing a slice negatively on `GOARCH=386`/`arm`.
+- Coverage-guided fuzz harness for every untrusted-input entry point
+  (`FuzzParseELF`, `FuzzParsePE`, `FuzzAnalyze`, stego `FuzzScan`,
+  `FuzzScanHeuristicsData`; `make fuzz`). Each ran millions of mutations with
+  no crash after the fixes above; the seed corpora run as unit tests in CI.
+- Detection-robustness harness (`scanner/robustness_test.go`): measures the
+  benign-transform envelope (case, UTF-16 widening, NUL-infixing, junk
+  padding, base64) each string/import detector survives on synthetic
+  fixtures, locks in the true positives, and fails if a bundled rule becomes
+  brittle. It found the wannacry case-sensitivity gap above.
+- Per-file panic isolation in `Engine.ScanFile`: a panic in any detector
+  degrades to a per-file error result instead of crashing the whole scan, so
+  one hostile file can never drop the rest of a directory batch. Test:
+  `TestEngineHostileFileDoesNotBreakBatch`.
+- `cau scan --output`, `cau coverage --output` and `cau rules --output` now
+  check the file's close error (a `defer fh.Close()` hid a failed flush on a
+  written report); `coverage.WriteText` and `FuzzyDB.Add` no longer swallow
+  write and TLSH-parse errors.
+
 ### Added
+- **ATT&CK coverage matrix** (`cau coverage`, `internal/coverage`): derived
+  from the shipped content (heuristic categories, the new static and stego
+  class catalogs, compiled YARA rule meta), never typed in; text, JSON and
+  ATT&CK Navigator layer output; each detector labeled with its Pyramid of
+  Pain level; unmapped content listed, never padded. `--expect
+  baselines/attack-coverage.txt` gates CI: a lost technique is a regression
+  and a gained one must be recorded (`--record`). Four per-technique states:
+  detected, partial (acknowledged incomplete), planned (a declared gap:
+  T1027.013, T1140, T1564.001) and none (owned by the sensor or console);
+  the SARIF rendering flags planned gaps as warnings.
+- **YARA rule linter** (`cau rules lint`, `internal/rulelint`): compile
+  diagnostics, required meta (description, author, threat_level 1-5, family,
+  mitre_attack with a valid id), hex-written-as-text strings (the dead-rule
+  class Phase 0 found), strings under four bytes, narrow-only text, trivial
+  conditions; `cau` and `generic` profiles, text or JSON, `--strict`.
+  `cau rules list` prints the compiled inventory. `make lint-rules` runs in CI.
+- **OCSF output** (`--format ocsf`): one Detection Finding (class 2004, OCSF
+  1.3.0) per suspicious or malicious file with severity, the leading
+  analytic, ATT&CK techniques with names, file evidence and digests, malware
+  names and the engine-native detail under `unmapped`.
+- `mitre_attack` meta on every bundled rule; `static.Classes()`,
+  `stego.Classes()` and `YaraScanner.RuleInfos()` expose the content
+  catalogs; `internal/attack` carries technique names (ATT&CK v15).
 - **ELF structural pass** (`scanner/static`): own bounds-checked ELF parser
   (32- and 64-bit, both byte orders; executables, shared objects, relocatable
   objects and kernel modules) reading segments, sections, the dynamic table,

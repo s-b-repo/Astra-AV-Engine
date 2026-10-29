@@ -224,6 +224,46 @@ cau eval gate   --candidate b.json [--baseline a.json] [--policy p.json] [--form
 
 `gate` without `--baseline` applies only the policy's absolute rules.
 
+## cau rules
+
+```sh
+cau rules lint [--rules path] [--profile cau|generic] [--format text|json] [--strict]
+cau rules list [--rules path] [--format text|json]
+```
+
+`lint` compiles the rules and reports, per rule and line: compile errors and
+compiler warnings, missing `description` / `author` / `threat_level` (1-5) /
+`family` / `mitre_attack` meta, malformed technique ids, text strings that
+are hex written as text (`"0x89,0x00"` never matches bytes), strings under
+four bytes, text strings without `wide`, and conditions that match every
+file. Errors exit 1; `--strict` makes warnings fatal. The `generic` profile
+drops the bundled-content conventions (`family`, `wide`, naming) for
+third-party rule sets such as signature-base. `list` prints every compiled
+rule with namespace, level, family, technique and description.
+
+## cau coverage
+
+```sh
+cau coverage [--rules path] [--no-yara] [--db path] [--fuzzy-db path]
+             [--format text|json|navigator|sarif] [--pretty] [--output file]
+             [--expect file] [--record] [--include-info]
+```
+
+Builds the ATT&CK coverage matrix of the shipped content: for every
+technique id, the detectors and content entries that are evidence for it;
+content with no technique is listed as unmapped. `--format navigator` writes
+an ATT&CK Navigator layer (score = number of independent detectors);
+`--format sarif` writes a SARIF 2.1.0 log with one rule and result per
+technique, so a code-scanning dashboard shows the coverage map and treats a
+planned gap as a warning. `--expect` compares the matrix to a committed
+expectation file (`baselines/attack-coverage.txt`, one row per technique:
+`<id> covered|partial|gap|none [note]`) and exits 1 on any difference;
+`--record` rewrites that file from the content, keeping its partial, gap and
+none rows. The four states render as detected, partial (covered but
+acknowledged incomplete), planned (an expectation `gap`) and none (owned by
+the sensor or console). Exit codes: 0 ok, 1 expectation differs, 3 failed, 4
+usage.
+
 ## CI recipes
 
 GitHub Actions, uploading findings to code scanning:

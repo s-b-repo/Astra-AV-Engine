@@ -106,6 +106,30 @@ relative to the scan root through `%SRCROOT%`. Library users can change the
 levels (`WithSARIFLevels`) or drop the SUSPICIOUS-tier and error results
 (`WithSARIFHeuristics(false)`, `WithSARIFScanErrors(false)`).
 
+## Coverage SARIF
+
+`cau coverage --format sarif` writes a separate SARIF 2.1.0 log describing
+the detection program rather than a scan: one rule and one result per ATT&CK
+technique, each with a `state` property (detected, partial, planned, none), a
+logical location of `attack/<id>` and a help URI into attack.mitre.org.
+Planned gaps are warnings; everything else is a note. It is not the
+scan-findings SARIF above; `make coverage` writes it to
+`eval-out/attack-coverage.sarif`.
+
+## OCSF
+
+`--format ocsf` writes a JSON array of OCSF 1.3.0 Detection Finding objects
+(`class_uid` 2004), one per file reported suspicious or malicious, for
+security lakes that speak OCSF (Matano, Amazon Security Lake). Malicious
+maps to severity High and `is_alert`, suspicious to Medium; the leading
+detector is `finding_info.analytic` (YARA rule or hash threat as its uid,
+the fusion lattice when only corroboration reached the tier); every ATT&CK
+technique any detector attached is in `finding_info.attacks` with its name;
+the file with its digests is `evidences[0].file`; hash threats, rule
+families and fuzzy matches are `malware`; the engine-native scores, classes
+and rule names sit under `unmapped`. Clean and unscannable files are not
+findings and are omitted. `jq -c '.[]'` turns the array into NDJSON.
+
 ## Exit-code policy
 
 The policy is pure: the same input always yields the same code.

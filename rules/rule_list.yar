@@ -8,8 +8,9 @@
 //     are wide.
 //   * Byte patterns are written as hex strings, not as the text "0x89,0x00".
 //   * meta.threat_level 1-5, meta.family names the family the rule claims.
-//   * meta.mitre_attack (optional) is the ATT&CK technique id; the fusion
-//     lattice and the coverage reporting read it.
+//   * meta.mitre_attack is the ATT&CK technique id (comma-separated when a
+//     rule is evidence for several); the fusion lattice, `cau coverage` and
+//     the OCSF output read it, and `cau rules lint` requires it.
 
 rule wannacry_ransomware
 {
@@ -17,16 +18,17 @@ rule wannacry_ransomware
         author = "CAU"
         description = "WannaCry / WanaCrypt0r dropper and payload strings"
         family = "wannacry"
+        mitre_attack = "T1486"
         threat_level = 5
         in_the_wild = true
 
     strings:
-        $b = "C:\\%s\\qeriuwjhrf" ascii wide
-        $c = "WNcry@2017" ascii wide
-        $d = "msg/m_bulgarian.wnry" ascii wide
-        $e = "WanaCryptor" ascii wide
-        $f = "tasksche.exe" ascii wide
-        $g = "WanaCrypt0r" ascii wide
+        $b = "C:\\%s\\qeriuwjhrf" ascii wide nocase
+        $c = "WNcry@2017" ascii wide nocase
+        $d = "msg/m_bulgarian.wnry" ascii wide nocase
+        $e = "WanaCryptor" ascii wide nocase
+        $f = "tasksche.exe" ascii wide nocase
+        $g = "WanaCrypt0r" ascii wide nocase
 
     condition:
         3 of them
@@ -38,6 +40,7 @@ rule mimikatz_strings
         author = "CAU"
         description = "Mimikatz module and command strings (binary or script carrier)"
         family = "mimikatz"
+        mitre_attack = "T1003"
         threat_level = 5
         in_the_wild = true
 
@@ -59,6 +62,7 @@ rule generic_ransomware_extensions
         author = "CAU"
         description = "Ransomware: encrypted-file extensions together with ransom-note file names"
         family = "ransomware"
+        mitre_attack = "T1486"
         threat_level = 3
 
     strings:
@@ -85,6 +89,7 @@ rule highly_sus_shellcode
         author = "CAU"
         description = "x86/x64 shellcode stubs: PEB walk and API-hashing prologues"
         family = "shellcode"
+        mitre_attack = "T1027.007"
         threat_level = 3
         in_the_wild = true
 
@@ -113,6 +118,7 @@ rule lokibot_stealer
         author = "CAU"
         description = "LokiBot credential-store file names"
         family = "lokibot"
+        mitre_attack = "T1555"
         threat_level = 4
 
     strings:
@@ -132,6 +138,7 @@ rule obfuscated_powershell
         author = "CAU"
         description = "PowerShell obfuscation and download-cradle markers"
         family = "powershell_cradle"
+        mitre_attack = "T1059.001"
         threat_level = 3
         in_the_wild = true
 

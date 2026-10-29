@@ -221,6 +221,8 @@ scores 6 and renders as low suspicion with the packer named; `libasan`,
 `libeatmydata` and sudo's noexec shims are named as known interposers at
 weight 0.
 
+`static.Classes()` returns this catalog programmatically, with a test that
+pins it to the emitting code; `cau coverage` reads it.
 `cau hash` prints the digests, `cau cluster` groups PE and ELF files by
 import similarity (exact imphash or ELF import-set hash, then MinHash / LSH
 over import sets).

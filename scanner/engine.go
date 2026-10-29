@@ -108,9 +108,28 @@ func (e *Engine) stegoThreshold() int {
 
 // ScanFile runs every configured detector over one file. The heuristic result
 // is nil when heuristics are disabled or the file could not be read.
-func (e *Engine) ScanFile(path string) (ScanResult, *HeuristicResult) {
+func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 	start := time.Now()
-	res := ScanResult{FilePath: path, Verdict: VerdictClean}
+	res = ScanResult{FilePath: path, Verdict: VerdictClean}
+
+	// Defence in depth: a parser bug on a hostile file must degrade to a
+	// per-file error, never crash the scan and lose every other file's
+	// result. Whatever a detector had already set (a hash or YARA hit, or a
+	// pass that completed) is kept; a file that was still clean becomes an
+	// error so it is flagged as unscannable rather than silently clean.
+	defer func() {
+		if r := recover(); r != nil {
+			res.Warnings = append(res.Warnings,
+				fmt.Sprintf("scan aborted by an internal panic (likely a malformed file): %v", r))
+			if res.Verdict == VerdictClean {
+				res.Verdict = VerdictError
+				if res.Error == nil {
+					res.Error = fmt.Errorf("internal panic while scanning %s: %v", path, r)
+				}
+			}
+			res.ScanTime = time.Since(start)
+		}
+	}()
 
 	fail := func(err error) (ScanResult, *HeuristicResult) {
 		res.Error = err
@@ -183,7 +202,6 @@ func (e *Engine) ScanFile(path string) (ScanResult, *HeuristicResult) {
 	}
 
 	// ── heuristics ─────────────────────────────────────
-	var h *HeuristicResult
 	if e.Heuristics {
 		var hr HeuristicResult
 		if data != nil {

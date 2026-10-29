@@ -251,15 +251,23 @@ score, which offset), `yara_test_rule` (against corpus, returns FP/FN), `generat
   explicit command, or opt-in periodic in config. No network available keeps the current
   DB with a loud warning. Offline/air-gap deployments receive the identical payload
   through the Phase 7 #10 signed bundle instead of a fetch.
-- [ ] YARA rule linter — catches the dead rules already shipped in `rule_list.yar`
+- [x] YARA rule linter — catches the dead rules already shipped in `rule_list.yar`.
+      Shipped 2026-10-29 as `cau rules lint` (`internal/rulelint`): compile
+      diagnostics, required meta, technique-id shape, hex-as-text, short and
+      narrow strings, trivial conditions; `cau` and `generic` profiles; `make
+      lint-rules` in CI. Found on the bundled set: no rule declared a technique.
 - [ ] Content test-before-promote: every rule change runs against Phase 1 corpus with
       measured regression, blocks merge on FP regression
-- [ ] ATT&CK mapping on rules + a coverage matrix that reports techniques with **no**
-      rule. This is the honest counterfactual to what CrowdStrike sells. Partial: static
-      anomaly classes and (since 2026-10-25) every heuristic category carry a technique
-      id, exposed through `scanner.CategoryTechnique` / `scanner.Categories`; YARA rules
-      may declare `mitre_attack` meta and fusion reads it. The rule linter, the matrix
-      and `cau coverage` are still open.
+- [x] ATT&CK mapping on rules + a coverage matrix that reports techniques with **no**
+      rule. This is the honest counterfactual to what CrowdStrike sells. Shipped
+      2026-10-29 as `cau coverage` (`internal/coverage`): derived from
+      `scanner.Categories`, the new `static.Classes` / `stego.Classes` catalogs and
+      the compiled rules' `mitre_attack` meta (every bundled rule now declares one);
+      text, JSON and ATT&CK Navigator layer; Pyramid of Pain level per source;
+      unmapped content listed. `baselines/attack-coverage.txt` is the expectation
+      (37 covered, 3 declared gaps: T1027.013, T1140, T1564.001) and
+      `make coverage-gate` fails on any difference. The Phase 11 `--format sarif`
+      rendering of per-technique states stays open.
 - [ ] Bind EU alternatives to the matrix so mapping never hinges on a single US registry:
       Unified Kill Chain (Fox-IT / P. Pols, NL) mapped phase-wise alongside ATT&CK as the
       sequencing view, MISP galaxy-cluster IDs (CIRCL, Luxembourg) for actor/family
@@ -421,7 +429,10 @@ schemas. Drift between them is a CI failure.
 - [ ] Security Onion — ECS-JSON syslog + a STIX 2.1/TAXII feed
 - [ ] OpenSearch Security Analytics — OTLP and ECS bulk over HTTP
 - [ ] OSSIM — CEF/LEEF over syslog
-- [ ] Matano — OCSF-JSON (Apache-2.0, the youngest of the five)
+- [~] Matano — OCSF-JSON (Apache-2.0, the youngest of the five). Engine side shipped
+      2026-10-29: `cau scan --format ocsf` writes OCSF 1.3.0 Detection Findings
+      (`internal/report/ocsf.go`); the console sink and the conformance fixture
+      round-trip remain.
 - License-honesty footnote: Graylog (SSPL) and Elastic Security (Elastic License 2.0)
   are widely deployed and supported as sinks, but are not OSI-FOSS — the marketing
   never calls them open source, and the matrix above is what the word means here.
@@ -705,9 +716,12 @@ T1091 (unimplemented in the corpus) is dropped.
 | T1048.003 | Exfil via URL params | NOVEL-006 egress check | console |
 | T1485 / T1489 / T1498 | Impact | mass permission/ownership-change alerts; kill-pool; egress flood shaping with attribution | sensor |
 
-- [ ] `cau coverage --format sarif`: per-technique state rendered as detected / partial /
+- [x] `cau coverage --format sarif`: per-technique state rendered as detected / partial /
   planned / none. Same honesty rule as the Phase 4 matrix: techniques with no rule are
-  reported, never padded.
+  reported, never padded. Shipped 2026-10-29: the expectation file gained `partial` and
+  `none` states beside `covered` and `gap`, `cau coverage --format sarif` writes a
+  SARIF 2.1.0 log (one rule/result per technique, planned gaps as warnings, help URIs
+  into attack.mitre.org), and `make coverage` emits `eval-out/attack-coverage.sarif`.
 - [ ] Provenance is the benign anchor for every inventory row, resolved against the
   Phase 7 #5 provenance DB — alert quality does not depend on per-customer tuning.
 - [ ] Fixtures: synthetic blue/red pairs generated at eval time and measured through the

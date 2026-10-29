@@ -18,9 +18,10 @@ type Reporter interface {
 }
 
 // Formats lists the names NewReporter accepts.
-var Formats = []string{"text", "json", "sarif"}
+var Formats = []string{"text", "json", "sarif", "ocsf"}
 
-// NewReporter selects a reporter by format name ("text", "json", "sarif").
+// NewReporter selects a reporter by format name ("text", "json", "sarif",
+// "ocsf").
 func NewReporter(format string, opts ...Option) (Reporter, error) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", "text":
@@ -29,6 +30,8 @@ func NewReporter(format string, opts ...Option) (Reporter, error) {
 		return NewJSONReporter(opts...), nil
 	case "sarif":
 		return NewSARIFReporter(opts...), nil
+	case "ocsf":
+		return NewOCSFReporter(opts...), nil
 	default:
 		return nil, fmt.Errorf("unknown output format %q (want one of %s)", format, strings.Join(Formats, ", "))
 	}

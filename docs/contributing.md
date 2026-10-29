@@ -32,7 +32,10 @@ Go 1.24, libyara 4.3 with headers and pkg-config are required; see
    (`section.rwx`, `stego.zero-width`), a weight, a category, and an ATT&CK
    technique where one honestly applies. Reports, SARIF rule ids, the eval
    harness and fused verdicts key on those labels; renaming one breaks
-   baselines.
+   baselines. New static classes go in `static.Classes()` (a test fails
+   otherwise); a new technique id fails `make coverage-gate` until it is
+   recorded in `baselines/attack-coverage.txt` with `make coverage-record`,
+   and every detector change is reflected in its [ADS](ads/README.md).
 3. **Synthetic fixtures only.** Nothing in this repository is built from a
    real sample. PE fixtures are constructed in the tests (`scanner/static/pe_test.go`);
    text fixtures are prose. Real corpora are referenced by hash and URL from
@@ -44,7 +47,13 @@ Go 1.24, libyara 4.3 with headers and pkg-config are required; see
    the boundary is refused, not split.
 5. **Honest output.** A pass that did not run says so. A score never becomes
    a MALICIOUS verdict. A fused verdict never lowers a detector's own.
-6. **Standard library** for reporters and the harness; the YARA binding is
+6. **Never panic on hostile input.** The PE and ELF parsers and the stego and
+   heuristic passes read attacker-controlled bytes; a crash is a denial of
+   service. Every such entry point has a `Fuzz*` target (`make fuzz`), and
+   `Engine.ScanFile` recovers per file so one bad file cannot drop a whole
+   directory scan. A fuzz crasher is committed as a seed under
+   `testdata/fuzz/` and fixed before merge.
+7. **Standard library** for reporters and the harness; the YARA binding is
    the only third-party module.
 
 ## Tests to expect

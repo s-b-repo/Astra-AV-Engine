@@ -14,23 +14,30 @@ CORPUS_DB ?= corpus/smoke/hashes.txt
 RULES    ?= rules
 BASELINE ?= baselines/smoke.json
 POLICY   ?= baselines/policy.json
+COVERAGE ?= baselines/attack-coverage.txt
 EVAL_OUT ?= eval-out
 
 export CGO_ENABLED=1
 
 .PHONY: all build test test-race vet fmt fmt-check lint bench clean install \
-        eval eval-validate eval-run eval-gate baseline ci
+        eval eval-validate eval-run eval-gate baseline lint-rules coverage \
+        coverage-gate coverage-record fuzz ci
 
 all: build
 
 build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o $(BINARY) .
 
+# TESTFLAGS carries a generous timeout: the static package's real-binary
+# measurement tests (TestMeasureRealELF walks ~5k system files) are slow under
+# -race, and the 10-minute go-test default can trip on a loaded CI runner.
+TESTFLAGS ?= -timeout 25m
+
 test:
-	go test $(GOFLAGS) $(PKG)
+	go test $(GOFLAGS) $(TESTFLAGS) $(PKG)
 
 test-race:
-	go test $(GOFLAGS) -race -count=1 $(PKG)
+	go test $(GOFLAGS) $(TESTFLAGS) -race -count=1 $(PKG)
 
 vet:
 	go vet $(PKG)
@@ -46,6 +53,19 @@ lint: fmt-check vet
 
 bench:
 	go test -run '^$$' -bench . -benchmem ./scanner/ ./scanner/static/ ./scanner/stego/
+
+# Robustness fuzzing: drive the untrusted-input parsers with coverage-guided
+# mutation. The invariant is "never panic". FUZZTIME tunes each target's run
+# (default 30s); a crasher lands under <pkg>/testdata/fuzz/ and becomes a
+# committed regression seed. The seed corpora also run as fast unit tests
+# under `make test`, so this target is for hunting, not for the gate.
+FUZZTIME ?= 30s
+fuzz: build
+	go test ./scanner/static/ -run '^$$' -fuzz '^FuzzParseELF$$' -fuzztime $(FUZZTIME)
+	go test ./scanner/static/ -run '^$$' -fuzz '^FuzzParsePE$$'  -fuzztime $(FUZZTIME)
+	go test ./scanner/static/ -run '^$$' -fuzz '^FuzzAnalyze$$'  -fuzztime $(FUZZTIME)
+	go test ./scanner/stego/  -run '^$$' -fuzz '^FuzzScan$$'     -fuzztime $(FUZZTIME)
+	go test ./scanner/        -run '^$$' -fuzz '^FuzzScanHeuristicsData$$' -fuzztime $(FUZZTIME)
 
 # ── Evaluation harness ──────────────────────────────────────────────────────
 
@@ -68,7 +88,28 @@ baseline: build
 	./$(BINARY) eval run --corpus $(CORPUS) --db $(CORPUS_DB) --rules $(RULES) \
 		--out $(BASELINE) --quiet
 
-ci: lint build test-race eval
+# ── Detection content gates ─────────────────────────────────────────────────
+
+# Rule hygiene: compile, required meta, technique ids, dead strings.
+lint-rules: build
+	./$(BINARY) rules lint --rules $(RULES)
+
+# Fail if the content lost a technique, or gained one nobody recorded.
+coverage-gate: build
+	./$(BINARY) coverage --rules $(RULES) --expect $(COVERAGE) --quiet --format text >/dev/null
+
+# Render the matrix: text to stdout, an ATT&CK Navigator layer to EVAL_OUT.
+coverage: build
+	@mkdir -p $(EVAL_OUT)
+	./$(BINARY) coverage --rules $(RULES) --expect $(COVERAGE) --quiet --format navigator --pretty --output $(EVAL_OUT)/attack-navigator.json
+	./$(BINARY) coverage --rules $(RULES) --expect $(COVERAGE) --quiet --format sarif --pretty --output $(EVAL_OUT)/attack-coverage.sarif
+	./$(BINARY) coverage --rules $(RULES) --expect $(COVERAGE) --quiet
+
+# Re-record the expectation (review the diff before committing it).
+coverage-record: build
+	./$(BINARY) coverage --rules $(RULES) --expect $(COVERAGE) --record --quiet --format text >/dev/null
+
+ci: lint build test-race lint-rules coverage-gate eval
 
 # ── Install ─────────────────────────────────────────────────────────────────
 # Installs the binary plus its content to PREFIX. The binary finds

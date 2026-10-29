@@ -3,6 +3,7 @@ package static
 import (
 	"bytes"
 	"encoding/binary"
+	"math/rand"
 	"os"
 	"strings"
 	"testing"
@@ -525,12 +526,19 @@ func writeTemp(t testing.TB, data []byte) string {
 // ── fuzzy ────────────────────────────────────────────────────────────────────
 
 func TestFuzzyHashesAndDistance(t *testing.T) {
-	base := randomBytes(t, 16<<10)
+	// Fixed seed: ssdeep similarity over random data is seed-dependent, so a
+	// crypto-random buffer made this assertion flaky (a rare seed scored 0).
+	seeded := func(seed int64, n int) []byte {
+		b := make([]byte, n)
+		rand.New(rand.NewSource(seed)).Read(b)
+		return b
+	}
+	base := seeded(1, 16<<10)
 	variant := append([]byte(nil), base...)
 	for i := 0; i < 8; i++ { // flip a few bytes: the single-byte-flip case exact hashes lose
 		variant[i*2000] ^= 0xff
 	}
-	other := randomBytes(t, 16<<10)
+	other := seeded(2, 16<<10)
 
 	hb, hv, ho := ComputeFuzzy(base), ComputeFuzzy(variant), ComputeFuzzy(other)
 	if hb.TLSH == "" || hb.SSDeep == "" {

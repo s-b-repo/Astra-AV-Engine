@@ -941,3 +941,83 @@ func TestWriteELFFixtures(t *testing.T) {
 		t.Logf("wrote %s (%d bytes, static score %d)", path, len(data), r.Score)
 	}
 }
+
+// TestParseELFSymtabTinyEntsize is the regression for the parseSymbols
+// out-of-bounds read: a relocatable object whose .symtab declares a 1-byte
+// sh_entsize while the parser reads a fixed 24-byte Elf64_Sym. With the
+// symbol table placed at end-of-file, the pre-fix per-entry guard
+// (p+entsize <= len) passed while the field read (b[0:4], b[6:8]) ran past
+// the buffer and panicked. ParseELF must not panic and must skip the
+// malformed table.
+func TestParseELFSymtabTinyEntsize(t *testing.T) {
+	const (
+		shentsize = 64
+		shnum     = 4 // null, .symtab, .strtab, .shstrtab
+	)
+	le := binary.LittleEndian
+
+	// Fixed regions first, so the symtab can sit at EOF.
+	header := make([]byte, 64)
+	shtab := make([]byte, shnum*shentsize)
+	shstr := append([]byte{0}, []byte(".symtab\x00.strtab\x00.shstrtab\x00")...)
+	strtab := append([]byte{0}, []byte("evil_func\x00")...)
+
+	shoff := uint64(len(header))
+	shstrOff := shoff + uint64(len(shtab))
+	strOff := shstrOff + uint64(len(shstr))
+	symOff := strOff + uint64(len(strtab))
+	symSize := uint64(40) // 40 one-byte "entries"; last read starts at EOF-1
+	total := symOff + symSize
+
+	// Name offsets into shstr: .symtab=1, .strtab=9, .shstrtab=17.
+	putSec := func(idx int, nameOff, typ uint32, off, size uint64, link, entsize uint64) {
+		b := shtab[idx*shentsize:]
+		le.PutUint32(b[0:], nameOff)
+		le.PutUint32(b[4:], typ)
+		le.PutUint64(b[24:], off)
+		le.PutUint64(b[32:], size)
+		le.PutUint32(b[40:], uint32(link))
+		le.PutUint64(b[56:], entsize)
+	}
+	putSec(1, 1, shtSymtab, symOff, symSize, 2 /*.strtab*/, 1 /*tiny entsize*/)
+	putSec(2, 9, shtStrtab, strOff, uint64(len(strtab)), 0, 0)
+	putSec(3, 17, shtStrtab, shstrOff, uint64(len(shstr)), 0, 0)
+
+	// ELF64 header.
+	copy(header[0:], []byte{0x7f, 'E', 'L', 'F', 2 /*64*/, 1 /*LE*/, 1})
+	le.PutUint16(header[16:], etRel)
+	le.PutUint16(header[18:], 62) // x86-64
+	le.PutUint32(header[20:], 1)
+	le.PutUint64(header[40:], shoff)
+	le.PutUint16(header[52:], 64) // e_ehsize
+	le.PutUint16(header[58:], shentsize)
+	le.PutUint16(header[60:], shnum)
+	le.PutUint16(header[62:], 3) // e_shstrndx
+
+	buf := make([]byte, 0, total)
+	buf = append(buf, header...)
+	buf = append(buf, shtab...)
+	buf = append(buf, shstr...)
+	buf = append(buf, strtab...)
+	buf = append(buf, make([]byte, symSize)...)
+	if uint64(len(buf)) != total {
+		t.Fatalf("layout mismatch: built %d want %d", len(buf), total)
+	}
+
+	// Must not panic (a defer-recover makes the failure a clear test error
+	// rather than a crashed test binary).
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("ParseELF panicked on a tiny-entsize .symtab: %v", r)
+		}
+	}()
+	e, err := ParseELF(buf)
+	if err != nil {
+		t.Fatalf("ParseELF errored instead of skipping the bad table: %v", err)
+	}
+	if e.ImportCount != 0 || len(e.Imports) != 0 {
+		t.Errorf("malformed .symtab should yield no imports, got count=%d %v", e.ImportCount, e.Imports)
+	}
+	// Analyze must stay panic-free on the same bytes.
+	_ = Analyze(buf, Options{NoFuzzy: true})
+}

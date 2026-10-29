@@ -206,3 +206,99 @@ func paths(rs []ScanResult) []string {
 	}
 	return out
 }
+
+// hostileELF is a relocatable object whose .symtab declares a 1-byte entsize
+// with the table at end-of-file: the input that used to panic the ELF parser.
+// It is built here so the engine test does not depend on the static package's
+// test helpers.
+func hostileELF() []byte {
+	const shentsize, shnum = 64, 4
+	le := func(b []byte, v uint64, n int) {
+		for i := 0; i < n; i++ {
+			b[i] = byte(v >> (8 * i))
+		}
+	}
+	header := make([]byte, 64)
+	shtab := make([]byte, shnum*shentsize)
+	shstr := append([]byte{0}, []byte(".symtab\x00.strtab\x00.shstrtab\x00")...)
+	strtab := append([]byte{0}, []byte("evil\x00")...)
+	shoff := uint64(len(header))
+	shstrOff := shoff + uint64(len(shtab))
+	strOff := shstrOff + uint64(len(shstr))
+	symOff := strOff + uint64(len(strtab))
+	symSize := uint64(40)
+
+	putSec := func(idx int, nameOff, typ uint32, off, size, link, entsize uint64) {
+		b := shtab[idx*shentsize:]
+		le(b[0:], uint64(nameOff), 4)
+		le(b[4:], uint64(typ), 4)
+		le(b[24:], off, 8)
+		le(b[32:], size, 8)
+		le(b[40:], link, 4)
+		le(b[56:], entsize, 8)
+	}
+	putSec(1, 1, 2 /*SHT_SYMTAB*/, symOff, symSize, 2, 1 /*tiny*/)
+	putSec(2, 9, 3 /*SHT_STRTAB*/, strOff, uint64(len(strtab)), 0, 0)
+	putSec(3, 17, 3, shstrOff, uint64(len(shstr)), 0, 0)
+
+	copy(header[0:], []byte{0x7f, 'E', 'L', 'F', 2, 1, 1})
+	le(header[16:], 1, 2)  // ET_REL
+	le(header[18:], 62, 2) // x86-64
+	le(header[20:], 1, 4)
+	le(header[40:], shoff, 8)
+	le(header[52:], 64, 2)
+	le(header[58:], shentsize, 2)
+	le(header[60:], shnum, 2)
+	le(header[62:], 3, 2)
+
+	buf := append([]byte{}, header...)
+	buf = append(buf, shtab...)
+	buf = append(buf, shstr...)
+	buf = append(buf, strtab...)
+	buf = append(buf, make([]byte, symSize)...)
+	return buf
+}
+
+// TestEngineHostileFileDoesNotBreakBatch is the stability contract: a file
+// that stresses a parser must degrade to a per-file result and never take
+// down the rest of a directory scan.
+func TestEngineHostileFileDoesNotBreakBatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a_clean.txt"), []byte("hello, world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b_hostile.o"), hostileELF(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "c_clean.txt"), []byte("goodbye, world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e := &Engine{DB: NewSignatureDB(), Heuristics: true, Static: true, Stego: true, Jobs: 4}
+	results, _ := e.ScanDirectory(root, nil)
+	if len(results) != 3 {
+		t.Fatalf("got %d results, want 3 (a hostile file must not drop the others)", len(results))
+	}
+	byName := map[string]ScanResult{}
+	for _, r := range results {
+		byName[filepath.Base(r.FilePath)] = r
+	}
+	// The two clean files scan normally.
+	for _, n := range []string{"a_clean.txt", "c_clean.txt"} {
+		if r, ok := byName[n]; !ok || r.Error != nil {
+			t.Errorf("%s should scan cleanly: %+v", n, r)
+		}
+	}
+	// The hostile file produced a result (no crash); the parser fix means it
+	// is not even an error, but either way the batch survived.
+	if _, ok := byName["b_hostile.o"]; !ok {
+		t.Error("hostile file missing from results")
+	}
+
+	// Scanning the hostile file on its own also returns rather than panics.
+	single := writeTempFile(t, "hostile.o", hostileELF())
+	res, _ := e.ScanFile(single)
+	if res.FilePath == "" {
+		t.Error("ScanFile returned an empty result on hostile input")
+	}
+}

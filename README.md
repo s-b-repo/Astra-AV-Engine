@@ -13,6 +13,9 @@ evaluation harness gates every detection change against a measured baseline.
 cau scan --dir ./downloads
 cau scan ./dist --format sarif --output cau.sarif --fail-on none    # code scanning
 cau scan ./build --format json --fail-on heuristic                   # fail CI on suspicion
+cau scan ./dist --format ocsf --output findings.json                 # OCSF for a security lake
+cau coverage --format navigator --output layer.json                  # ATT&CK Navigator heat map
+cau rules lint --rules ./signature-base --profile generic            # lint a third-party rule set
 ```
 
 ## What it does
@@ -74,8 +77,9 @@ failed, 4 usage.
 | [Installation](docs/installation.md) | requirements, build, install, release tarballs, resource discovery |
 | [Command-line reference](docs/cli.md) | every command and flag, exit codes, CI recipes |
 | [Detectors](docs/detectors.md) | how each detector scores, its classes and techniques, and the numbers it was tuned on |
-| [Output formats](docs/output-formats.md) | the text report, JSON schema 1.3.0, SARIF 2.1.0 rule ids, the exit policy |
-| [Detection content](docs/detection-content.md) | signature databases, YARA conventions, the fuzzy-hash database |
+| [Output formats](docs/output-formats.md) | the text report, JSON schema 1.3.0, SARIF 2.1.0 rule ids, OCSF Detection Findings, the exit policy |
+| [Detection content](docs/detection-content.md) | signature databases, YARA conventions and the rule linter, the fuzzy-hash database |
+| [Detection engineering](docs/detection-engineering.md) | ADS documents, the ATT&CK coverage matrix and its gate, Pyramid of Pain, OCSF |
 | [Evaluation harness](docs/evaluation.md) | corpora, baselines, regression gates, every measurement behind the docs |
 | [Library usage](docs/library.md) | using the engine and the fusion lattice from Go |
 | [Architecture](docs/architecture.md) | the single-read pipeline, verdict tiers, design rules, layout |
@@ -93,6 +97,7 @@ failed, 4 usage.
 | invisible-codepoint pass is usable on real text | 70,102 benign text artifacts | 0.10 % false positives, 348 legitimate uses excused by named rules |
 | fusion adds no false positives | 349 files | 0 fused-only detections, 0 new false positives |
 | nothing regresses silently | `corpus/smoke` on every push | 100 % recall, 0 false positives, gated in CI against the committed baseline |
+| coverage claims are derived, not typed | `cau coverage` on every push | 37 techniques with content and 3 declared gaps, gated against `baselines/attack-coverage.txt`; every bundled rule passes `cau rules lint` |
 
 Details and caveats in [docs/evaluation.md](docs/evaluation.md).
 

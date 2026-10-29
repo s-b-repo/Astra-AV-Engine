@@ -460,7 +460,9 @@ func (e *ELF) vaToOffset(va uint64) (int, bool) {
 		if !s.Load() || s.FileSize == 0 {
 			continue
 		}
-		if va >= s.VirtAddr && va < s.VirtAddr+s.FileSize {
+		// va-VirtAddr (not VirtAddr+FileSize) so a segment whose address range
+		// wraps uint64 cannot make a contained VA resolve to "not mapped".
+		if va >= s.VirtAddr && va-s.VirtAddr < s.FileSize {
 			off := s.Offset + (va - s.VirtAddr)
 			if off < uint64(e.size) {
 				return int(off), true
@@ -473,7 +475,7 @@ func (e *ELF) vaToOffset(va uint64) (int, bool) {
 // segmentIndexForVA returns the PT_LOAD mapping va (by memory size), or -1.
 func (e *ELF) segmentIndexForVA(va uint64) int {
 	for i, s := range e.Segments {
-		if s.Load() && va >= s.VirtAddr && va < s.VirtAddr+s.MemSize {
+		if s.Load() && va >= s.VirtAddr && va-s.VirtAddr < s.MemSize {
 			return i
 		}
 	}
@@ -816,7 +818,8 @@ func (e *ELF) gnuHashSymbolCount(data []byte, va uint64) int {
 	nbuckets := int(r.Uint32(data[off:]))
 	symoffset := int(r.Uint32(data[off+4:]))
 	bloomSize := int(r.Uint32(data[off+8:]))
-	if nbuckets <= 0 || nbuckets > 1<<20 || bloomSize < 0 || bloomSize > 1<<20 {
+	if nbuckets <= 0 || nbuckets > 1<<20 || bloomSize < 0 || bloomSize > 1<<20 ||
+		symoffset < 0 || symoffset > 1<<24 {
 		return -1
 	}
 	wordSize := 4
@@ -906,8 +909,21 @@ func (e *ELF) parseSymbols(data []byte) {
 	if e.Type != etRel || e.ImportCount > 0 {
 		return
 	}
+	wantEnt := 16
+	if e.is64 {
+		wantEnt = 24
+	}
 	for _, s := range e.Sections {
 		if s.Type != shtSymtab || s.EntSize == 0 || s.Size == 0 {
+			continue
+		}
+		// Floor the stride to the struct size, exactly as parseDynamic does:
+		// readSymbols reads a fixed-size Elf32/64_Sym, so an attacker-set
+		// sh_entsize below the minimum would let the per-entry guard pass
+		// while the field read overruns the buffer (out-of-bounds panic).
+		ent := int(s.EntSize)
+		if ent < wantEnt {
+			e.warn(".symtab entry size %d is below the %d byte minimum", ent, wantEnt)
 			continue
 		}
 		off, sz, ok := e.fileRange(s.Offset, s.Size)
@@ -924,12 +940,12 @@ func (e *ELF) parseSymbols(data []byte) {
 			return
 		}
 		tab := data[stOff : stOff+stSz]
-		count := sz / int(s.EntSize)
+		count := sz / ent
 		if count > maxELFDynSyms {
 			e.warn("%d symbols declared; reading the first %d", count, maxELFDynSyms)
 			count = maxELFDynSyms
 		}
-		e.readSymbols(data, off, int(s.EntSize), count, func(n uint32) string {
+		e.readSymbols(data, off, ent, count, func(n uint32) string {
 			if int(n) >= len(tab) {
 				return ""
 			}

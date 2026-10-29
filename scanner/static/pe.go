@@ -386,7 +386,9 @@ func (p *PE) sectionIndexForRVA(rva uint32) int {
 		if size == 0 {
 			continue
 		}
-		if rva >= s.VirtualAddress && rva < s.VirtualAddress+size {
+		// rva-VirtualAddress (not VirtualAddress+size) so a section whose
+		// address range wraps uint32 cannot hide an RVA from the mapping.
+		if rva >= s.VirtualAddress && rva-s.VirtualAddress < size {
 			return i
 		}
 	}
@@ -397,7 +399,7 @@ func (p *PE) sectionIndexForRVA(rva uint32) int {
 // inside the section's raw data. ok is false for RVAs that map to nothing on
 // disk (zero-filled virtual tail, out of image).
 func (p *PE) rvaToOffset(rva uint32) (int, bool) {
-	if rva < p.SizeOfHeaders && int(rva) < p.size {
+	if rva < p.SizeOfHeaders && int64(rva) < int64(p.size) {
 		// Headers are mapped 1:1. Only honour this when no section claims the
 		// RVA, since a bogus SizeOfHeaders could otherwise shadow a section.
 		if p.sectionIndexForRVA(rva) < 0 {
@@ -604,10 +606,10 @@ func (p *PE) parseDebug(data []byte) {
 		case 16: // IMAGE_DEBUG_TYPE_REPRO
 			p.Debug.Reproducible = true
 		case 2: // IMAGE_DEBUG_TYPE_CODEVIEW
-			r := int(raw)
-			if raw == 0 || r+24 > len(data) || size < 24 {
+			if raw == 0 || uint64(raw)+24 > uint64(len(data)) || size < 24 {
 				continue
 			}
+			r := int(raw)
 			if string(data[r:r+4]) == "RSDS" {
 				g := data[r+4 : r+20]
 				p.Debug.GUID = fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",

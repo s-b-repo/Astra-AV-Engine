@@ -135,6 +135,17 @@ gate: FAIL (1 violation(s))
   ✗ [overall] max_recall_drop: dropped 60.00 pt, at most 0.00 pt allowed (baseline 100.00%, candidate 40.00%)
 ```
 
+### The content gates beside it
+
+Two more gates run in CI next to the eval gate and fail the build the same
+way. `make lint-rules` runs `cau rules lint` over the bundled rules: a rule
+that does not compile, lacks its meta, or carries a string that can never
+match is an error. `make coverage-gate` runs `cau coverage --expect
+baselines/attack-coverage.txt`: the ATT&CK techniques the content maps to
+must equal the recorded expectation, so a detector change that drops a
+technique is a regression and a rule that adds one has to be recorded with
+`make coverage-record`. See [Detection engineering](detection-engineering.md).
+
 ## Detectors in the harness
 
 | Name | Fires when | Signals |

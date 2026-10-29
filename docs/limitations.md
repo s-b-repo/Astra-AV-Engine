@@ -27,6 +27,26 @@ exists so the demonstration can be measured.
 | Stego | a stray ZERO WIDTH SPACE pasted into documentation or a translation file; source files that enumerate Unicode categories (regular-expression libraries, identifier tables); a stray byte-order mark mid-file | 70 of 70,102 benign text artifacts (0.10 %) |
 | Fusion | none observed | 0 fused-only detections on the tool set |
 
+## Detection robustness (measured)
+
+`scanner/robustness_test.go` measures how much benign, structure-level
+perturbation each string/import detector survives on synthetic fixtures — the
+defensive form of "evasion distance". It is a regression gate: a bundled rule
+that becomes brittle (a benign transform drops a detection that fired on the
+untouched sample) fails the test.
+
+| Transform | YARA / heuristics | Why |
+|---|---|---|
+| case fold (upper/lower) | **survives** | rules carry `nocase`; the wannacry rule was case-sensitive until this was measured and `nocase` added |
+| UTF-16 widening, NUL-infixing | **survives** | the `ascii wide` modifier matches the widened form, so NUL-between-bytes is just UTF-16LE |
+| prefix / suffix junk | **survives** | the indicator strings are still present and contiguous |
+| base64 of the whole file | **evades** | the contiguous byte sequence is gone; this is the documented encoding gap, not a regression |
+
+The base64/encryption gap is fundamental to byte-pattern matching and is why
+the engine fuses several detectors rather than trusting any one; peeling
+encoded layers is planned (PLAN.md, NOVEL-012). The harness runs on synthetic
+samples only and ships no bypass.
+
 The stego pass is presence-based on purpose: a single pasted codepoint is
 reported as exactly one occurrence with no payload run, so an analyst can
 tell it from an encoded channel at a glance, and `--stego-threshold 8` makes
