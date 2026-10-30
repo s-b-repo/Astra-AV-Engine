@@ -15,6 +15,7 @@ joins their outcomes. Each detector answers a different question:
 | [Shell Link (.lnk)](#shell-link-lnk) | is this Windows shortcut a weaponised launcher? | SUSPICIOUS |
 | [OLE macro](#ole-macro) | does this Office document carry a malicious VBA macro? | SUSPICIOUS |
 | [PDF document](#pdf-document) | does this PDF auto-run code or carry a payload? | SUSPICIOUS |
+| [ISO container](#iso-container) | is this disk image a mark-of-the-web-bypass lure? | SUSPICIOUS |
 | [Fusion](#fusion) | do several of the above agree, even below their own thresholds? | never lowers; raises CLEAN to SUSPICIOUS |
 
 SUSPICIOUS is evidence with a score and an explanation, never a confirmed
@@ -393,6 +394,33 @@ below while the canonical `OpenAction`→`JavaScript` dropper crosses.
 
 It is SUSPICIOUS-tier, never MALICIOUS. `--no-pdf` disables it and
 `--pdf-threshold` tunes the score.
+
+## ISO container
+
+`scanner/iso` recognises the ISO/IMG email-smuggling delivery shape: attackers
+mail a small `.iso` that, when mounted, shows a `.lnk` relaunching an
+interpreter against a hidden payload — a route that became popular because
+mounted-image contents historically did not inherit Mark-of-the-Web. The
+detector reads the ISO 9660 directory tree (with Joliet UCS-2 names when
+present) through a parser that is enumeration-only — it never reads file
+contents — and bounded by construction: an explicit queue instead of recursion,
+caps on records/sectors/entries/depth, a visited-set of extent LBAs that breaks
+self-referential extents, and a range check on every sector and record, so a
+malformed image yields a partial enumeration with a warning rather than a hang.
+
+The ATT&CK-mapped signals: `autorun.inf` in the root (T1091), a `.lnk` shortcut
+(T1204.002), an executable or script file (T1204.002), a hidden-flagged
+executable or a payload inside a hidden directory (T1564.001), and — the
+canonical lure — a `.lnk` present together with an executable payload
+(`iso.lure.lnk-and-payload`, T1204.002), with a tiny extra weight when the image
+is also small (the attachment shape). The default threshold (8) is tuned so a
+legitimate software ISO full of executables does not cross on executables alone,
+while the lnk-plus-payload smuggling shape does. The detector enumerates the
+container shape; the files it names are scanned on their own by the other
+detectors.
+
+It is SUSPICIOUS-tier, never MALICIOUS. `--no-iso` disables it and
+`--iso-threshold` tunes the score.
 
 ## Fusion
 

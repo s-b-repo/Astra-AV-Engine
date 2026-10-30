@@ -9,6 +9,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -93,6 +94,9 @@ func (r *TextReporter) Write(w io.Writer, in Input) error {
 		}
 		if hasResult && res.PDF != nil {
 			c.writePDF(bw, res.PDF)
+		}
+		if hasResult && res.ISO != nil {
+			c.writeISO(bw, res.ISO)
 		}
 		if hasResult && res.Fusion != nil {
 			c.writeFusion(bw, res.FilePath, res.Fusion)
@@ -456,6 +460,32 @@ func (c config) writePDF(w io.Writer, p *pdf.Result) {
 	fmt.Fprintln(w)
 }
 
+// writeISO renders the ISO 9660 malicious-container analysis when it fired.
+func (c config) writeISO(w io.Writer, i *iso.Result) {
+	if i.Skipped != "" || !isoBreached(i, c.isoThreshold) {
+		return
+	}
+	path := c.boundedMessage(i.FilePath)
+	threshold := isoThresholdFor(i, c.isoThreshold)
+	fmt.Fprintf(w, " [!] DETECTED (ISO container) — %s\n", path)
+	fmt.Fprintf(w, "     %-10s: %s\n", "Verdict", "SUSPICIOUS")
+	fmt.Fprintf(w, "     %-10s: %d / %d threshold\n", "Score", i.Score, threshold)
+	fmt.Fprintln(w)
+	for _, f := range i.Findings {
+		tags := ""
+		if f.Technique != "" {
+			tags = "  (" + c.boundedMessage(f.Technique) + ")"
+		}
+		fmt.Fprintf(w, "     [%s] %d%s\n", c.boundedMessage(f.Class), f.Score, tags)
+		detail := c.boundedMessage(f.Detail)
+		if f.Evidence != "" {
+			detail += ": " + c.boundedMessage(f.Evidence)
+		}
+		fmt.Fprintf(w, "       %s\n", detail)
+	}
+	fmt.Fprintln(w)
+}
+
 // writeFusion renders the lattice's verdict when it adds something to what
 // the detectors already printed: a detection reached only by corroboration,
 // or a verdict several sources agreed on. A fused verdict that restates one
@@ -513,6 +543,7 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	lnkHits := len(in.LNKBreach(c.lnkThreshold))
 	oleHits := len(in.OLEBreach(c.oleThreshold))
 	pdfHits := len(in.PDFBreach(c.pdfThreshold))
+	isoHits := len(in.ISOBreach(c.isoThreshold))
 	fused := len(in.FusionCorroborated())
 
 	fmt.Fprintln(w)
@@ -528,6 +559,7 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	fmt.Fprintf(w, " Shell-link detections : %d\n", lnkHits)
 	fmt.Fprintf(w, " OLE-macro detections  : %d\n", oleHits)
 	fmt.Fprintf(w, " PDF detections        : %d\n", pdfHits)
+	fmt.Fprintf(w, " ISO detections        : %d\n", isoHits)
 	fmt.Fprintf(w, " Fused-only detections : %d\n", fused)
 	fmt.Fprintf(w, " Errors                : %d\n", in.ErrorCount())
 	fmt.Fprintf(w, " Exit code             : %d (%s)\n", code, reason)

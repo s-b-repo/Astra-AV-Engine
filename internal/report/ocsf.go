@@ -341,6 +341,18 @@ func (c config) ocsfFinding(doc Document, f File, now int64) ocsfFinding {
 		titleParts = append(titleParts, fmt.Sprintf("pdf document %d/%d", pd.Score, pd.Threshold))
 		fi.Unmapped["pdf"] = map[string]any{"score": pd.Score, "threshold": pd.Threshold, "classes": classes}
 	}
+	if is := f.ISO; is != nil && is.Detected {
+		sources = append(sources, "iso")
+		var classes []string
+		for _, fd := range is.Findings {
+			classes = append(classes, fd.Class)
+			if fd.Technique != "" {
+				techs[fd.Technique] = true
+			}
+		}
+		titleParts = append(titleParts, fmt.Sprintf("iso container %d/%d", is.Score, is.Threshold))
+		fi.Unmapped["iso"] = map[string]any{"score": is.Score, "threshold": is.Threshold, "classes": classes}
+	}
 	if fu := f.Fusion; fu != nil {
 		for _, t := range fu.Techniques {
 			techs[t] = true

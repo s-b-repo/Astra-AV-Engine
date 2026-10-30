@@ -10,6 +10,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -42,6 +43,9 @@ const (
 	// SARIFRulePDFPrefix prefixes one rule per PDF class
 	// ("pdf/action.openaction", "pdf/javascript", ...).
 	SARIFRulePDFPrefix = "pdf/"
+	// SARIFRuleISOPrefix prefixes one rule per ISO class
+	// ("iso/lure.lnk-and-payload", "iso/autorun.inf", ...).
+	SARIFRuleISOPrefix = "iso/"
 )
 
 // ── SARIF object model (only the subset the reporter emits) ──────────────────
@@ -269,6 +273,14 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 				table.add(c.pdfRule(f))
 			}
 		}
+		for _, res := range in.Results {
+			if !isoBreached(res.ISO, c.isoThreshold) {
+				continue
+			}
+			for _, f := range res.ISO.Findings {
+				table.add(c.isoRule(f))
+			}
+		}
 		if len(in.FusionCorroborated()) > 0 {
 			table.add(sarifRule{
 				ID:               SARIFRuleFusion,
@@ -388,6 +400,9 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 		}
 		if res.PDF != nil {
 			results = c.appendPDF(results, &table, res)
+		}
+		if res.ISO != nil {
+			results = c.appendISO(results, &table, res)
 		}
 		if res.Fusion != nil {
 			results = c.appendFusion(results, &table, res)
@@ -875,6 +890,49 @@ func (c config) appendPDF(results []sarifResult, table *ruleTable, res scanner.S
 		props := map[string]interface{}{
 			"score":      p.Score,
 			"threshold":  pdfThresholdFor(p, c.pdfThreshold),
+			"classScore": f.Score,
+		}
+		if f.Technique != "" {
+			props["technique"] = f.Technique
+		}
+		if f.Evidence != "" {
+			props["evidence"] = c.boundedMessage(f.Evidence)
+		}
+		results = append(results, sarifResult{
+			RuleID:              rule.ID,
+			RuleIndex:           table.index[rule.ID],
+			Level:               c.levelHeuristic,
+			Message:             sarifMessage{Text: c.boundedMessage(f.Detail)},
+			Locations:           []sarifLocation{c.location(res.FilePath, nil)},
+			PartialFingerprints: c.fingerprints(res),
+			Properties:          props,
+		})
+	}
+	return results
+}
+
+func (c config) isoRule(f iso.Finding) sarifRule {
+	class := strings.TrimPrefix(f.Class, "iso.")
+	return sarifRule{
+		ID:               SARIFRuleISOPrefix + class,
+		Name:             "ISOContainer_" + strings.ToUpper(strings.ReplaceAll(class, ".", "_")),
+		ShortDescription: &sarifMessage{Text: "Malicious ISO container signal (" + class + ")"},
+		FullDescription:  &sarifMessage{Text: "An ISO 9660 image shows the mark-of-the-web-bypass delivery shape — a shortcut paired with an executable payload, a hidden payload, or an autorun.inf. Suspicious container shape read from the directory tree, not a confirmed detection."},
+		DefaultConfig:    &sarifRuleConfig{Level: c.levelHeuristic},
+		Properties:       map[string]interface{}{"kind": "iso"},
+	}
+}
+
+func (c config) appendISO(results []sarifResult, table *ruleTable, res scanner.ScanResult) []sarifResult {
+	i := res.ISO
+	if !c.sarifIncludeHeuristics || !isoBreached(i, c.isoThreshold) {
+		return results
+	}
+	for _, f := range i.Findings {
+		rule := c.isoRule(f)
+		props := map[string]interface{}{
+			"score":      i.Score,
+			"threshold":  isoThresholdFor(i, c.isoThreshold),
 			"classScore": f.Score,
 		}
 		if f.Technique != "" {

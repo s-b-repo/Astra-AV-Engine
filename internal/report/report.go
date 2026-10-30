@@ -44,6 +44,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -94,6 +95,8 @@ const (
 	DefaultOLEThreshold = ole.DefaultThreshold
 	// DefaultPDFThreshold mirrors pdf.DefaultThreshold.
 	DefaultPDFThreshold = pdf.DefaultThreshold
+	// DefaultISOThreshold mirrors iso.DefaultThreshold.
+	DefaultISOThreshold = iso.DefaultThreshold
 )
 
 // TruncationMarker is appended to any string that was cut short. Blob-shaped
@@ -469,6 +472,29 @@ func pdfBreached(p *pdf.Result, fallback int) bool {
 	return p != nil && p.Skipped == "" && p.Score >= pdfThresholdFor(p, fallback)
 }
 
+// ISOBreach returns the scan results whose ISO score reached the threshold.
+func (in Input) ISOBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if isoBreached(r.ISO, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func isoThresholdFor(i *iso.Result, fallback int) int {
+	if i != nil && i.Threshold > 0 {
+		return i.Threshold
+	}
+	return fallback
+}
+
+// isoBreached is the single definition of "the ISO detector fired".
+func isoBreached(i *iso.Result, fallback int) bool {
+	return i != nil && i.Skipped == "" && i.Score >= isoThresholdFor(i, fallback)
+}
+
 func stegoThresholdFor(s *stego.Result, fallback int) int {
 	if s != nil && s.Threshold > 0 {
 		return s.Threshold
@@ -529,6 +555,7 @@ type config struct {
 	lnkThreshold       int
 	oleThreshold       int
 	pdfThreshold       int
+	isoThreshold       int
 	stat               StatFunc
 	now                func() time.Time
 
@@ -620,6 +647,9 @@ func WithOLEThreshold(n int) Option { return func(c *config) { c.oleThreshold = 
 // WithPDFThreshold records which threshold the PDF detector ran at.
 func WithPDFThreshold(n int) Option { return func(c *config) { c.pdfThreshold = n } }
 
+// WithISOThreshold records which threshold the ISO detector ran at.
+func WithISOThreshold(n int) Option { return func(c *config) { c.isoThreshold = n } }
+
 // WithStatFunc overrides how file sizes are resolved (os.Stat by default).
 func WithStatFunc(f StatFunc) Option { return func(c *config) { c.stat = f } }
 
@@ -683,6 +713,7 @@ func defaultConfig() config {
 		lnkThreshold:        DefaultLNKThreshold,
 		oleThreshold:        DefaultOLEThreshold,
 		pdfThreshold:        DefaultPDFThreshold,
+		isoThreshold:        DefaultISOThreshold,
 		stat:                osFileSize,
 		now:                 time.Now,
 
@@ -742,6 +773,9 @@ func (c *config) normalize() {
 	}
 	if c.pdfThreshold <= 0 {
 		c.pdfThreshold = DefaultPDFThreshold
+	}
+	if c.isoThreshold <= 0 {
+		c.isoThreshold = DefaultISOThreshold
 	}
 	if c.stat == nil {
 		c.stat = osFileSize

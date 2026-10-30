@@ -419,4 +419,5 @@ const (
 	SourceLNK        = "lnk"
 	SourceOLE        = "ole"
 	SourcePDF        = "pdf"
+	SourceISO        = "iso"
 )

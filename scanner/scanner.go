@@ -18,6 +18,7 @@ import (
 
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -87,6 +88,11 @@ type ScanResult struct {
 	// JavaScript, Launch, embedded files, name obfuscation). nil when the
 	// detector did not run. A breach is the SUSPICIOUS tier.
 	PDF *pdf.Result
+
+	// ISO is the ISO 9660 malicious-container analysis (the .lnk+hidden-payload
+	// email-smuggling shape, autorun.inf). nil when the detector did not run.
+	// A breach is the SUSPICIOUS tier.
+	ISO *iso.Result
 
 	// Fusion is the lattice's view over every detector that ran: which
 	// sources agreed, how strongly, and what techniques the agreeing evidence
