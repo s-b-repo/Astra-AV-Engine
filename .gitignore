@@ -1,5 +1,6 @@
 # Build output
 /cau
+/cau-mcp
 /cau.exe
 /dist/
 /bin/

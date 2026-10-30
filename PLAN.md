@@ -56,6 +56,9 @@ detail and the open items. Everything here is measured and gated in CI
 - YARA rule linter (`cau rules lint`), `cau rules list`.
 - Output: text, versioned JSON (schema 1.4.0), SARIF 2.1.0, OCSF 1.3.0.
 - Evaluation harness with a committed smoke corpus and regression gates.
+- MCP server (`cau-mcp`): the engine over JSON-RPC on stdio — nine tools
+  (scan/explain/test-and-draft-rules/coverage), signature and coverage
+  resources, two triage/review prompts, all behind a path-confined sandbox.
 
 **Robustness (engine hardening):**
 - Coverage-guided fuzzers on every untrusted-input parser (`make fuzz`),
@@ -69,7 +72,7 @@ encoded-executable detector; **T1564.001 is the sole remaining declared content
 gap** (sensor-owned — a file scanner could only anchor on an attacker-controlled
 name, which the analytic-design rule forbids).
 
-**Not yet shipped (see phases):** the MCP server (Phase 3), intelligence feeds
+**Not yet shipped (see phases):** intelligence feeds
 and the EU-framework bindings (Phase 4), the ML ladder (Phase 5), the full
 layer-peeler and the NOVEL-012 follow-ups (Phase 10 / Phase 12), firmware and
 the broader format/plane sweeps (Phases 8-9), and the entire console/sensor
@@ -253,10 +256,36 @@ cluster` / `cau add-fuzzy`. Notes on what was actually measured:
 
 ---
 
-## Phase 3 — MCP server (OSS)
+## Phase 3 — MCP server (OSS) — DONE 2026-10-30
 
 Highest differentiation per line of code. No competitor ships an AV *engine* as MCP —
 `revula`, `Reversecore_MCP`, `NexusCore_MCP` are RE/debugging toolchains.
+
+Shipped 2026-10-30 as `cau-mcp` (`cmd/cau-mcp`, `internal/mcp`): JSON-RPC 2.0
+over the line-delimited stdio transport, stdlib-only (no SDK dependency), the
+transport abstracted behind `Serve(io.Reader, io.Writer)` so the optional
+streamable-HTTP transport can be added without touching the handlers. The
+sandbox (`internal/mcp/sandbox.go`) enforces path confinement against a
+`--root` allowlist with symlink-escape rejection, a per-file size cap, and
+bounded directory enumeration; every tool result is a bounded, summarized JSON
+payload (truncation is always reported, never silent). Resource discovery moved
+to `internal/resources` so the server and the CLI resolve databases/rules
+identically.
+
+Tools shipped: `scan_file`, `scan_dir`, `scan_hash`, `explain_verdict`,
+`yara_test_rule`, `generate_yara_rule`, `list_signatures`, `add_signature`,
+`mitre_coverage`. Resources: `cau://signatures`, `cau://coverage`,
+`cau://rules/{name}`. Prompts: `triage_sample`, `rule_review`.
+
+Scope-note deviations from the sketch below, stated plainly:
+- `evasion_report` (tool) and `evasion_assessment` (prompt) are **not** shipped:
+  they belong to the Phase 6 evasion suite, which the agent scope note keeps
+  out of the engine. They are omitted, not stubbed.
+- `cau://corpus/{sample}/report` waits on evaluation-corpus addressing;
+  `cau://model/{name}/card` waits on the Phase 5 ML ladder. Neither is
+  advertised until it exists.
+- `rule_review` ships (false-positive-risk assessment is detection quality, not
+  evasion); the streamable-HTTP transport is the remaining open item.
 
 ```
 cmd/cau-mcp/          # stdio primary, streamable-HTTP optional
