@@ -416,4 +416,5 @@ const (
 	SourceSimilarity = "similarity"
 	SourceStego      = "stego"
 	SourceEncChain   = "encchain"
+	SourceLNK        = "lnk"
 )

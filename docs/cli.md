@@ -52,11 +52,15 @@ directories never.
 | `--no-heuristics` | off | disable the string and API heuristics |
 | `--no-static` | off | disable the static structural pass |
 | `--no-fuzzy` | off | keep the static pass but skip TLSH / ssdeep (faster on large files; disables similarity lookups) |
-| `--no-encchain`, `--no-stego` | off | disable the invisible-codepoint pass |
+| `--no-stego` | off | disable the invisible-codepoint pass |
+| `--no-encchain` | off | disable the encoded-executable pass |
+| `--no-lnk` | off | disable the Windows Shell Link (.lnk) pass |
 | `--no-fusion` | off | disable the fusion lattice |
 | `--heuristic-threshold N` | 7 | heuristic score at which a file is SUSPICIOUS |
 | `--static-threshold N` | 8 | static anomaly score at which a file is SUSPICIOUS |
 | `--stego-threshold N` | 4 | stego score at which a text artifact is SUSPICIOUS; 4 is presence-based, 8 requires a modifier |
+| `--encchain-threshold N` | 8 | encoded-executable score at which a file is SUSPICIOUS |
+| `--lnk-threshold N` | 8 | Shell Link score at which a file is SUSPICIOUS |
 | `--yara-timeout D` | 30s | per-file YARA budget; a timed-out scan keeps the matches it found and records a warning |
 | `--max-in-memory MiB` | 64 | larger files are streamed: hashing streams, YARA memory-maps, the heuristic, static and stego passes are skipped with the reason recorded |
 | `--jobs N` | CPUs | files scanned concurrently |

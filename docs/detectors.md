@@ -12,6 +12,7 @@ joins their outcomes. Each detector answers a different question:
 | [Static structure](#static-structure) | is it *built* like something that hides? | SUSPICIOUS |
 | [Invisible codepoints](#invisible-codepoints-stego) | does this text or code carry hidden codepoints? | SUSPICIOUS |
 | [Encoded executable](#encoded-executable) | is an executable hidden behind text encoding? | SUSPICIOUS |
+| [Shell Link (.lnk)](#shell-link-lnk) | is this Windows shortcut a weaponised launcher? | SUSPICIOUS |
 | [Fusion](#fusion) | do several of the above agree, even below their own thresholds? | never lowers; raises CLEAN to SUSPICIOUS |
 
 SUSPICIOUS is evidence with a score and an explanation, never a confirmed
@@ -308,6 +309,32 @@ Measured over 159,339 benign files from a Kali install, it fired on 32
 (0.020 %), every one a genuine embedded encoded executable in offensive
 tooling or exploit documentation. `--no-encchain` disables it and
 `--encchain-threshold` tunes the score.
+
+## Shell Link (.lnk)
+
+`scanner/lnk` reads the Windows Shell Link ([MS-SHLLINK]) binary format and
+asks whether a shortcut is a weaponised launcher — the classic ISO/ZIP lure
+that drops a `.lnk` whose arguments relaunch an interpreter. It parses the
+ShellLinkHeader, the optional LinkTargetIDList and LinkInfo, the StringData
+sections (name, relative path, working directory, **command-line arguments**,
+icon location) and the ExtraData blocks, through a bounds-checked cursor that
+caps every declared size and never recurses, so a truncated or adversarial
+shortcut yields a partial result with a warning rather than a panic.
+
+The findings are small additive signals, each mapped to ATT&CK: an interpreter
+or LOLBin in the arguments (`powershell`→T1059.001, `cmd`→T1059.003,
+`wscript`/`cscript`→T1059.005, `mshta`/`rundll32`/`regsvr32`/… →T1059), encoded
+or obfuscated command flags (`-enc`, `FromBase64String`, `IEX`, …→T1027), a
+hidden-window flag (T1027), environment-variable path obfuscation (T1027), an
+executable or script target (T1204.002), a document-icon lure fronting an
+interpreter (T1204.002), unusually long arguments, and data appended past the
+shortcut structures (T1027). The default threshold (8) is chosen so no single
+benign tell crosses it while a real combination does — an interpreter plus an
+encoded flag, or an interpreter plus a hidden window.
+
+It is SUSPICIOUS-tier, never MALICIOUS: the structure is strong evidence of a
+launcher, not proof of malice (legitimate installers ship shortcuts too).
+`--no-lnk` disables it and `--lnk-threshold` tunes the score.
 
 ## Fusion
 

@@ -39,13 +39,16 @@ A roll-up of the OSS engine as it stands; the phase sections below hold the
 detail and the open items. Everything here is measured and gated in CI
 (`make ci`: vet, race tests, rule lint, coverage gate, eval gate).
 
-**Detectors (six, single-pass, plus a fusion lattice):**
+**Detectors (seven, single-pass, plus a fusion lattice):**
 - Hash signatures, YARA (in-process libyara), string/API heuristics.
 - Static structure — own bounds-checked PE and ELF parsers, entropy, packer,
   overlay, Authenticode, TLSH/ssdeep/imphash similarity.
 - Invisible-codepoint (stego) pass.
 - Encoded-executable pass (`scanner/encchain`) — base64/hex layers decoding to
   a PE/ELF header; measured 0.020% FP over 159,339 benign files.
+- Shell Link (.lnk) pass (`scanner/lnk`) — [MS-SHLLINK] parser reading
+  weaponised-shortcut signals (interpreter arguments, encoded/hidden-window
+  flags, env-var path obfuscation, executable target, icon lure, overlay).
 - Fusion lattice — corroboration of sub-threshold detectors; never lowers a
   verdict.
 
@@ -604,9 +607,13 @@ is part of the deliverable.
   binary content — without this, the eBPF sensor (#Phase 7-7) is telemetry with no local
   verifier.
 - [ ] Document & archive vectors: OLE (VBA, macro stomping, remote templates), PDF, LNK,
-  CHM, ISO; nested-decompression budget with bomb caps. These are the top delivery paths
-  and none are parsed today. OLE semantics go through the Phase 5 sidecar runtime if Go
-  ports lag — the corpus harness decides, not convenience.
+  CHM, ISO; nested-decompression budget with bomb caps. These are the top delivery paths.
+  **LNK shipped 2026-10-30** as `scanner/lnk` ([MS-SHLLINK] parser + detection, wired
+  through the engine, fusion, ATT&CK coverage and all four reporters; `--no-lnk` /
+  `--lnk-threshold`; adds coverage of T1204.002 and the T1059 family / T1027 from
+  shortcuts). OLE, PDF, CHM and ISO remain; OLE semantics go through the Phase 5 sidecar
+  runtime if Go ports lag — the corpus harness decides, not convenience. Each lands with
+  its own fuzz harness (see the parser-fuzzing gate).
 - [ ] Quarantine + canary primitives in the OSS engine: quarantine DB with
   integrity-checked restore, decoy/canary files as cheap ground truth for the behavior
   engine. The console ships full response by design; OSS analysts still need an honest

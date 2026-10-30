@@ -10,6 +10,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/stego"
 )
 
@@ -30,6 +31,9 @@ const (
 	// ("stego/zero-width", "stego/bidi-control", ...).
 	SARIFRuleStegoPrefix    = "stego/"
 	SARIFRuleEncChainPrefix = "encchain/"
+	// SARIFRuleLNKPrefix prefixes one rule per Shell Link class
+	// ("lnk/command.powershell", "lnk/obfuscation.encoded", ...).
+	SARIFRuleLNKPrefix = "lnk/"
 )
 
 // ── SARIF object model (only the subset the reporter emits) ──────────────────
@@ -233,6 +237,14 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 				table.add(c.encChainRule(f))
 			}
 		}
+		for _, res := range in.Results {
+			if !lnkBreached(res.LNK, c.lnkThreshold) {
+				continue
+			}
+			for _, f := range res.LNK.Findings {
+				table.add(c.lnkRule(f))
+			}
+		}
 		if len(in.FusionCorroborated()) > 0 {
 			table.add(sarifRule{
 				ID:               SARIFRuleFusion,
@@ -343,6 +355,9 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 		}
 		if res.EncChain != nil {
 			results = c.appendEncChain(results, &table, res)
+		}
+		if res.LNK != nil {
+			results = c.appendLNK(results, &table, res)
 		}
 		if res.Fusion != nil {
 			results = c.appendFusion(results, &table, res)
@@ -715,6 +730,49 @@ func (c config) appendEncChain(results []sarifResult, table *ruleTable, res scan
 			Level:               c.levelHeuristic,
 			Message:             sarifMessage{Text: c.boundedMessage(f.Detail)},
 			Locations:           []sarifLocation{l},
+			PartialFingerprints: c.fingerprints(res),
+			Properties:          props,
+		})
+	}
+	return results
+}
+
+func (c config) lnkRule(f lnk.Finding) sarifRule {
+	class := strings.TrimPrefix(f.Class, "lnk.")
+	return sarifRule{
+		ID:               SARIFRuleLNKPrefix + class,
+		Name:             "ShellLink_" + strings.ToUpper(strings.ReplaceAll(class, ".", "_")),
+		ShortDescription: &sarifMessage{Text: "Malicious Windows shortcut signal (" + class + ")"},
+		FullDescription:  &sarifMessage{Text: "A Windows Shell Link (.lnk) carries a signal of weaponised-shortcut delivery — an interpreter or LOLBin in its arguments, encoded or hidden-window flags, environment-variable path obfuscation, an executable target, a document-icon lure or appended data. Suspicious capability read from the structure, not a confirmed detection."},
+		DefaultConfig:    &sarifRuleConfig{Level: c.levelHeuristic},
+		Properties:       map[string]interface{}{"kind": "lnk"},
+	}
+}
+
+func (c config) appendLNK(results []sarifResult, table *ruleTable, res scanner.ScanResult) []sarifResult {
+	l := res.LNK
+	if !c.sarifIncludeHeuristics || !lnkBreached(l, c.lnkThreshold) {
+		return results
+	}
+	for _, f := range l.Findings {
+		rule := c.lnkRule(f)
+		props := map[string]interface{}{
+			"score":      l.Score,
+			"threshold":  lnkThresholdFor(l, c.lnkThreshold),
+			"classScore": f.Score,
+		}
+		if f.Technique != "" {
+			props["technique"] = f.Technique
+		}
+		if f.Evidence != "" {
+			props["evidence"] = c.boundedMessage(f.Evidence)
+		}
+		results = append(results, sarifResult{
+			RuleID:              rule.ID,
+			RuleIndex:           table.index[rule.ID],
+			Level:               c.levelHeuristic,
+			Message:             sarifMessage{Text: c.boundedMessage(f.Detail)},
+			Locations:           []sarifLocation{c.location(res.FilePath, nil)},
 			PartialFingerprints: c.fingerprints(res),
 			Properties:          props,
 		})
