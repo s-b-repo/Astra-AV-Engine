@@ -317,6 +317,18 @@ func (c config) ocsfFinding(doc Document, f File, now int64) ocsfFinding {
 		titleParts = append(titleParts, fmt.Sprintf("shell link %d/%d", lk.Score, lk.Threshold))
 		fi.Unmapped["lnk"] = map[string]any{"score": lk.Score, "threshold": lk.Threshold, "classes": classes}
 	}
+	if ol := f.OLE; ol != nil && ol.Detected {
+		sources = append(sources, "ole")
+		var classes []string
+		for _, fd := range ol.Findings {
+			classes = append(classes, fd.Class)
+			if fd.Technique != "" {
+				techs[fd.Technique] = true
+			}
+		}
+		titleParts = append(titleParts, fmt.Sprintf("ole macro %d/%d", ol.Score, ol.Threshold))
+		fi.Unmapped["ole"] = map[string]any{"score": ol.Score, "threshold": ol.Threshold, "classes": classes}
+	}
 	if fu := f.Fusion; fu != nil {
 		for _, t := range fu.Techniques {
 			techs[t] = true

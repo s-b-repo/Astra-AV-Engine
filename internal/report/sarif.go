@@ -11,6 +11,7 @@ import (
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/lnk"
+	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/stego"
 )
 
@@ -34,6 +35,9 @@ const (
 	// SARIFRuleLNKPrefix prefixes one rule per Shell Link class
 	// ("lnk/command.powershell", "lnk/obfuscation.encoded", ...).
 	SARIFRuleLNKPrefix = "lnk/"
+	// SARIFRuleOLEPrefix prefixes one rule per OLE macro class
+	// ("ole/vba.autoexec", "ole/exec.powershell", ...).
+	SARIFRuleOLEPrefix = "ole/"
 )
 
 // ── SARIF object model (only the subset the reporter emits) ──────────────────
@@ -245,6 +249,14 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 				table.add(c.lnkRule(f))
 			}
 		}
+		for _, res := range in.Results {
+			if !oleBreached(res.OLE, c.oleThreshold) {
+				continue
+			}
+			for _, f := range res.OLE.Findings {
+				table.add(c.oleRule(f))
+			}
+		}
 		if len(in.FusionCorroborated()) > 0 {
 			table.add(sarifRule{
 				ID:               SARIFRuleFusion,
@@ -358,6 +370,9 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 		}
 		if res.LNK != nil {
 			results = c.appendLNK(results, &table, res)
+		}
+		if res.OLE != nil {
+			results = c.appendOLE(results, &table, res)
 		}
 		if res.Fusion != nil {
 			results = c.appendFusion(results, &table, res)
@@ -759,6 +774,49 @@ func (c config) appendLNK(results []sarifResult, table *ruleTable, res scanner.S
 		props := map[string]interface{}{
 			"score":      l.Score,
 			"threshold":  lnkThresholdFor(l, c.lnkThreshold),
+			"classScore": f.Score,
+		}
+		if f.Technique != "" {
+			props["technique"] = f.Technique
+		}
+		if f.Evidence != "" {
+			props["evidence"] = c.boundedMessage(f.Evidence)
+		}
+		results = append(results, sarifResult{
+			RuleID:              rule.ID,
+			RuleIndex:           table.index[rule.ID],
+			Level:               c.levelHeuristic,
+			Message:             sarifMessage{Text: c.boundedMessage(f.Detail)},
+			Locations:           []sarifLocation{c.location(res.FilePath, nil)},
+			PartialFingerprints: c.fingerprints(res),
+			Properties:          props,
+		})
+	}
+	return results
+}
+
+func (c config) oleRule(f ole.Finding) sarifRule {
+	class := strings.TrimPrefix(f.Class, "ole.")
+	return sarifRule{
+		ID:               SARIFRuleOLEPrefix + class,
+		Name:             "OLEMacro_" + strings.ToUpper(strings.ReplaceAll(class, ".", "_")),
+		ShortDescription: &sarifMessage{Text: "Malicious OLE/VBA macro signal (" + class + ")"},
+		FullDescription:  &sarifMessage{Text: "An OLE compound-file document carries a VBA-macro signal of malicious intent — an auto-executing entry point, a shell/interpreter or download call in the decompressed macro source, heavy obfuscation, or an embedded-object/exploit lure. Suspicious capability read from the document, not a confirmed detection."},
+		DefaultConfig:    &sarifRuleConfig{Level: c.levelHeuristic},
+		Properties:       map[string]interface{}{"kind": "ole"},
+	}
+}
+
+func (c config) appendOLE(results []sarifResult, table *ruleTable, res scanner.ScanResult) []sarifResult {
+	o := res.OLE
+	if !c.sarifIncludeHeuristics || !oleBreached(o, c.oleThreshold) {
+		return results
+	}
+	for _, f := range o.Findings {
+		rule := c.oleRule(f)
+		props := map[string]interface{}{
+			"score":      o.Score,
+			"threshold":  oleThresholdFor(o, c.oleThreshold),
 			"classScore": f.Score,
 		}
 		if f.Technique != "" {

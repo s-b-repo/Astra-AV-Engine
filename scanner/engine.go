@@ -11,6 +11,7 @@ import (
 
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
+	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -77,6 +78,12 @@ type Engine struct {
 	// LNKThreshold overrides lnk.Threshold (0 = package default).
 	LNKThreshold int
 
+	// OLE enables the OLE compound-file (VBA macro) detector. Its result rides
+	// on ScanResult.OLE.
+	OLE bool
+	// OLEThreshold overrides ole.Threshold (0 = package default).
+	OLEThreshold int
+
 	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
 	// it costs nothing: it is a view over results already computed.
 	NoFusion bool
@@ -132,6 +139,13 @@ func (e *Engine) lnkThreshold() int {
 		return e.LNKThreshold
 	}
 	return lnk.Threshold
+}
+
+func (e *Engine) oleThreshold() int {
+	if e.OLEThreshold > 0 {
+		return e.OLEThreshold
+	}
+	return ole.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -307,6 +321,22 @@ func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 				FilePath:  path,
 				Size:      int(fi.Size()),
 				Threshold: e.lnkThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── OLE compound-file (VBA macros) ─────────────────
+	if e.OLE {
+		if data != nil {
+			res.OLE = ole.Analyze(data, ole.Options{Threshold: e.oleThreshold()})
+			res.OLE.FilePath = path
+		} else {
+			res.OLE = &ole.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.oleThreshold(),
 				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
 					fi.Size(), e.maxInMemory()),
 			}

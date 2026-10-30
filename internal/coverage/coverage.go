@@ -23,6 +23,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
+	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -37,6 +38,7 @@ const (
 	SourceStego      = "stego"
 	SourceEncChain   = "encchain"
 	SourceLNK        = "lnk"
+	SourceOLE        = "ole"
 )
 
 // Pyramid of Pain levels (David J. Bianco). Only the levels a file scanner
@@ -212,6 +214,15 @@ func Build(in Inputs) *Matrix {
 		})
 	}
 
+	// OLE compound-file (VBA macro) classes.
+	for _, c := range ole.Classes() {
+		entries = append(entries, Entry{
+			Source: SourceOLE, Label: c.Class, Name: c.Class,
+			Technique: c.Technique, Novel: c.Novel, Weight: c.Weight, Tier: TierSuspicious,
+			Description: c.Description,
+		})
+	}
+
 	// YARA rules: one entry per declared technique, or one unmapped entry.
 	for _, r := range in.Rules {
 		if r.Private {
@@ -295,7 +306,7 @@ func Build(in Inputs) *Matrix {
 			s.Mapped++
 		}
 	}
-	for _, name := range []string{SourceHash, SourceYara, SourceHeuristic, SourceStatic, SourceSimilarity, SourceStego, SourceEncChain, SourceLNK} {
+	for _, name := range []string{SourceHash, SourceYara, SourceHeuristic, SourceStatic, SourceSimilarity, SourceStego, SourceEncChain, SourceLNK, SourceOLE} {
 		s := counts[name]
 		if s == nil {
 			s = &SourceSummary{Name: name}
@@ -350,6 +361,8 @@ func sourceProfile(name string) (pyramid, tier string) {
 	case SourceEncChain:
 		return PyramidTTPs, TierSuspicious
 	case SourceLNK:
+		return PyramidTTPs, TierSuspicious
+	case SourceOLE:
 		return PyramidTTPs, TierSuspicious
 	}
 	return "", ""

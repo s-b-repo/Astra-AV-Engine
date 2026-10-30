@@ -19,6 +19,7 @@ import (
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/lnk"
+	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -75,6 +76,11 @@ type ScanResult struct {
 	// delivery: interpreter arguments, obfuscation, lures). nil when the
 	// detector did not run. A breach is the SUSPICIOUS tier.
 	LNK *lnk.Result
+
+	// OLE is the OLE compound-file analysis (VBA macro tradecraft: auto-exec
+	// entry points, suspicious calls, embedded-object lures). nil when the
+	// detector did not run. A breach is the SUSPICIOUS tier.
+	OLE *ole.Result
 
 	// Fusion is the lattice's view over every detector that ran: which
 	// sources agreed, how strongly, and what techniques the agreeing evidence
