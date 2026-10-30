@@ -329,8 +329,15 @@ score, which offset), `yara_test_rule` (against corpus, returns FP/FN), `generat
       diagnostics, required meta, technique-id shape, hex-as-text, short and
       narrow strings, trivial conditions; `cau` and `generic` profiles; `make
       lint-rules` in CI. Found on the bundled set: no rule declared a technique.
-- [ ] Content test-before-promote: every rule change runs against Phase 1 corpus with
-      measured regression, blocks merge on FP regression
+- [x] Content test-before-promote: every rule change runs against Phase 1 corpus with
+      measured regression, blocks merge on FP regression. Satisfied by the
+      Phase 1 regression gate wired into CI: `make eval-gate` runs `cau eval
+      run` over the corpus and `cau eval gate` against `baselines/smoke.json`
+      under `baselines/policy.json`, whose `max_new_false_positives: 0` /
+      `max_recall_drop: 0` fail the build on any FP or recall regression. The CI
+      workflow runs it on every push and pull_request, so a rule change cannot
+      merge without passing. (The corpus is the committed smoke set until the
+      Phase 4 intake feeds replace the synthetic filler.)
 - [x] ATT&CK mapping on rules + a coverage matrix that reports techniques with **no**
       rule. This is the honest counterfactual to what CrowdStrike sells. Shipped
       2026-10-29 as `cau coverage` (`internal/coverage`): derived from
@@ -614,6 +621,13 @@ is part of the deliverable.
   ELF, UEFI, OLE, archives). A scanner that dies on a malformed sample is a
   time-of-scanning liability; fuzz failures block releases with the same honesty as the
   Phase 1 gates.
+  Progress: **every parser shipped so far is fuzzed** — `FuzzParsePE`,
+  `FuzzParseELF`, `FuzzAnalyze` (static), `FuzzScan` (stego),
+  `FuzzScanHeuristicsData`, and `FuzzAnalyze` (encchain, added 2026-10-30), all
+  in `make fuzz` with seed corpora that also run as fast unit tests under `make
+  test`. The item stays open for the parsers not yet written (UEFI → Phase 8,
+  OLE/archives → Phase 9 document & archive vectors); each lands with its fuzz
+  harness in the same change.
 - [ ] macOS decision, explicitly: Mach-O scanner plus the LOOBins content already
   ingested. Scope is set at the end of Phase 2 — OSS engine only, or console sensor
   surface. The one thing not accepted is drifting half-committed for two releases.
