@@ -12,6 +12,7 @@ import (
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -84,6 +85,12 @@ type Engine struct {
 	// OLEThreshold overrides ole.Threshold (0 = package default).
 	OLEThreshold int
 
+	// PDF enables the PDF malicious-document detector. Its result rides on
+	// ScanResult.PDF.
+	PDF bool
+	// PDFThreshold overrides pdf.Threshold (0 = package default).
+	PDFThreshold int
+
 	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
 	// it costs nothing: it is a view over results already computed.
 	NoFusion bool
@@ -146,6 +153,13 @@ func (e *Engine) oleThreshold() int {
 		return e.OLEThreshold
 	}
 	return ole.Threshold
+}
+
+func (e *Engine) pdfThreshold() int {
+	if e.PDFThreshold > 0 {
+		return e.PDFThreshold
+	}
+	return pdf.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -337,6 +351,22 @@ func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 				FilePath:  path,
 				Size:      int(fi.Size()),
 				Threshold: e.oleThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── PDF malicious-document ─────────────────────────
+	if e.PDF {
+		if data != nil {
+			res.PDF = pdf.Analyze(data, pdf.Options{Threshold: e.pdfThreshold()})
+			res.PDF.FilePath = path
+		} else {
+			res.PDF = &pdf.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.pdfThreshold(),
 				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
 					fi.Size(), e.maxInMemory()),
 			}

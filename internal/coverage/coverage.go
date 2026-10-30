@@ -24,6 +24,7 @@ import (
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -39,6 +40,7 @@ const (
 	SourceEncChain   = "encchain"
 	SourceLNK        = "lnk"
 	SourceOLE        = "ole"
+	SourcePDF        = "pdf"
 )
 
 // Pyramid of Pain levels (David J. Bianco). Only the levels a file scanner
@@ -223,6 +225,15 @@ func Build(in Inputs) *Matrix {
 		})
 	}
 
+	// PDF malicious-document classes.
+	for _, c := range pdf.Classes() {
+		entries = append(entries, Entry{
+			Source: SourcePDF, Label: c.Class, Name: c.Class,
+			Technique: c.Technique, Novel: c.Novel, Weight: c.Weight, Tier: TierSuspicious,
+			Description: c.Description,
+		})
+	}
+
 	// YARA rules: one entry per declared technique, or one unmapped entry.
 	for _, r := range in.Rules {
 		if r.Private {
@@ -306,7 +317,7 @@ func Build(in Inputs) *Matrix {
 			s.Mapped++
 		}
 	}
-	for _, name := range []string{SourceHash, SourceYara, SourceHeuristic, SourceStatic, SourceSimilarity, SourceStego, SourceEncChain, SourceLNK, SourceOLE} {
+	for _, name := range []string{SourceHash, SourceYara, SourceHeuristic, SourceStatic, SourceSimilarity, SourceStego, SourceEncChain, SourceLNK, SourceOLE, SourcePDF} {
 		s := counts[name]
 		if s == nil {
 			s = &SourceSummary{Name: name}
@@ -363,6 +374,8 @@ func sourceProfile(name string) (pyramid, tier string) {
 	case SourceLNK:
 		return PyramidTTPs, TierSuspicious
 	case SourceOLE:
+		return PyramidTTPs, TierSuspicious
+	case SourcePDF:
 		return PyramidTTPs, TierSuspicious
 	}
 	return "", ""

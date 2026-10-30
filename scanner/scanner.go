@@ -20,6 +20,7 @@ import (
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -81,6 +82,11 @@ type ScanResult struct {
 	// entry points, suspicious calls, embedded-object lures). nil when the
 	// detector did not run. A breach is the SUSPICIOUS tier.
 	OLE *ole.Result
+
+	// PDF is the PDF malicious-document analysis (auto-run actions, embedded
+	// JavaScript, Launch, embedded files, name obfuscation). nil when the
+	// detector did not run. A breach is the SUSPICIOUS tier.
+	PDF *pdf.Result
 
 	// Fusion is the lattice's view over every detector that ran: which
 	// sources agreed, how strongly, and what techniques the agreeing evidence
