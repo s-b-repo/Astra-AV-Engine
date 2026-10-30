@@ -46,6 +46,7 @@ import (
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -91,6 +92,8 @@ const (
 	DefaultLNKThreshold = lnk.DefaultThreshold
 	// DefaultOLEThreshold mirrors ole.DefaultThreshold.
 	DefaultOLEThreshold = ole.DefaultThreshold
+	// DefaultPDFThreshold mirrors pdf.DefaultThreshold.
+	DefaultPDFThreshold = pdf.DefaultThreshold
 )
 
 // TruncationMarker is appended to any string that was cut short. Blob-shaped
@@ -443,6 +446,29 @@ func oleBreached(o *ole.Result, fallback int) bool {
 	return o != nil && o.Skipped == "" && o.Score >= oleThresholdFor(o, fallback)
 }
 
+// PDFBreach returns the scan results whose PDF score reached the threshold.
+func (in Input) PDFBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if pdfBreached(r.PDF, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func pdfThresholdFor(p *pdf.Result, fallback int) int {
+	if p != nil && p.Threshold > 0 {
+		return p.Threshold
+	}
+	return fallback
+}
+
+// pdfBreached is the single definition of "the PDF detector fired".
+func pdfBreached(p *pdf.Result, fallback int) bool {
+	return p != nil && p.Skipped == "" && p.Score >= pdfThresholdFor(p, fallback)
+}
+
 func stegoThresholdFor(s *stego.Result, fallback int) int {
 	if s != nil && s.Threshold > 0 {
 		return s.Threshold
@@ -502,6 +528,7 @@ type config struct {
 	encChainThreshold  int
 	lnkThreshold       int
 	oleThreshold       int
+	pdfThreshold       int
 	stat               StatFunc
 	now                func() time.Time
 
@@ -590,6 +617,9 @@ func WithLNKThreshold(n int) Option { return func(c *config) { c.lnkThreshold = 
 // WithOLEThreshold records which threshold the OLE macro detector ran at.
 func WithOLEThreshold(n int) Option { return func(c *config) { c.oleThreshold = n } }
 
+// WithPDFThreshold records which threshold the PDF detector ran at.
+func WithPDFThreshold(n int) Option { return func(c *config) { c.pdfThreshold = n } }
+
 // WithStatFunc overrides how file sizes are resolved (os.Stat by default).
 func WithStatFunc(f StatFunc) Option { return func(c *config) { c.stat = f } }
 
@@ -652,6 +682,7 @@ func defaultConfig() config {
 		encChainThreshold:   DefaultEncChainThreshold,
 		lnkThreshold:        DefaultLNKThreshold,
 		oleThreshold:        DefaultOLEThreshold,
+		pdfThreshold:        DefaultPDFThreshold,
 		stat:                osFileSize,
 		now:                 time.Now,
 
@@ -708,6 +739,9 @@ func (c *config) normalize() {
 	}
 	if c.oleThreshold <= 0 {
 		c.oleThreshold = DefaultOLEThreshold
+	}
+	if c.pdfThreshold <= 0 {
+		c.pdfThreshold = DefaultPDFThreshold
 	}
 	if c.stat == nil {
 		c.stat = osFileSize

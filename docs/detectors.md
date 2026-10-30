@@ -14,6 +14,7 @@ joins their outcomes. Each detector answers a different question:
 | [Encoded executable](#encoded-executable) | is an executable hidden behind text encoding? | SUSPICIOUS |
 | [Shell Link (.lnk)](#shell-link-lnk) | is this Windows shortcut a weaponised launcher? | SUSPICIOUS |
 | [OLE macro](#ole-macro) | does this Office document carry a malicious VBA macro? | SUSPICIOUS |
+| [PDF document](#pdf-document) | does this PDF auto-run code or carry a payload? | SUSPICIOUS |
 | [Fusion](#fusion) | do several of the above agree, even below their own thresholds? | never lowers; raises CLEAN to SUSPICIOUS |
 
 SUSPICIOUS is evidence with a score and an explanation, never a confirmed
@@ -365,6 +366,33 @@ suspicious call crosses it.
 It is SUSPICIOUS-tier, never MALICIOUS: a macro is strong evidence, not proof
 (business documents legitimately automate). `--no-ole` disables it and
 `--ole-threshold` tunes the score.
+
+## PDF document
+
+`scanner/pdf` detects malicious PDFs — the phishing lure whose document
+auto-runs JavaScript, launches an external program, or carries an embedded
+payload. A full PDF parse is unnecessary and, on adversarial files, dangerous,
+so the detector is a **bounded lexical + shallow-structural scan** (the tool
+most PDF-malware detectors actually use): it never recurses, caps the bytes it
+reads and the number of name tokens it processes, and returns a partial result
+with a warning rather than hanging. It first resolves PDF name obfuscation —
+names may hex-escape characters as `#xx` (`/J#61vaScript` is `/JavaScript`), so
+matching is done against the decoded canonical name.
+
+The ATT&CK-mapped signals: an auto-run action (`/OpenAction`, `/AA` → T1204.002),
+embedded JavaScript (`/JavaScript`, `/JS` → T1059.007), a `/Launch` action
+(T1059), an embedded-file payload (`/EmbeddedFile` → T1204.002), a remote fetch
+(`/SubmitForm`, `/GoToR` → T1105), a `/URI` link (T1204.001, low weight),
+JavaScript exploitation primitives (`unescape`, `eval`, `%u` heap-spray,
+`getAnnots` → T1027), and — the strongest intent signal — a sensitive name
+spelled with `#xx` hex escapes (T1027), which benign PDFs essentially never do.
+Encryption is noted but never scored alone (many benign PDFs are encrypted); it
+adds a tiny amplifier only when combined with an auto-run action and JavaScript.
+The default threshold (8) is chosen so a plain PDF with a benign link stays well
+below while the canonical `OpenAction`→`JavaScript` dropper crosses.
+
+It is SUSPICIOUS-tier, never MALICIOUS. `--no-pdf` disables it and
+`--pdf-threshold` tunes the score.
 
 ## Fusion
 

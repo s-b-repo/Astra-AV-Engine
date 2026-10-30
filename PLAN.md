@@ -39,7 +39,7 @@ A roll-up of the OSS engine as it stands; the phase sections below hold the
 detail and the open items. Everything here is measured and gated in CI
 (`make ci`: vet, race tests, rule lint, coverage gate, eval gate).
 
-**Detectors (eight, single-pass, plus a fusion lattice):**
+**Detectors (nine, single-pass, plus a fusion lattice):**
 - Hash signatures, YARA (in-process libyara), string/API heuristics.
 - Static structure — own bounds-checked PE and ELF parsers, entropy, packer,
   overlay, Authenticode, TLSH/ssdeep/imphash similarity.
@@ -52,6 +52,9 @@ detail and the open items. Everything here is measured and gated in CI
 - OLE macro pass (`scanner/ole`) — [MS-CFB] parser + [MS-OVBA] decompression
   reading VBA-macro tradecraft (auto-exec entry points, shell/interpreter and
   download calls, obfuscation, embedded-object/Equation-Editor lures).
+- PDF document pass (`scanner/pdf`) — bounded lexical scan with `#xx` name
+  de-obfuscation reading malicious-PDF tradecraft (auto-run actions, embedded
+  JavaScript, Launch, embedded files, JS exploit primitives).
 - Fusion lattice — corroboration of sub-threshold detectors; never lowers a
   verdict.
 
@@ -619,8 +622,11 @@ is part of the deliverable.
   adds coverage of T1137 and T1203 and joins T1105 / T1027 / the T1059 family /
   T1204.002). Go-native, no sidecar needed. Macro-stomping is deferred (needs the
   MODULEOFFSET dir-record parse; the v1 signature-scan locates CompressedContainers
-  without it — measure-or-don't-ship). PDF, CHM and ISO remain. Each lands with its own
-  fuzz harness (see the parser-fuzzing gate).
+  without it — measure-or-don't-ship). **PDF shipped 2026-10-30** as `scanner/pdf`
+  (bounded lexical scan with `#xx` name de-obfuscation + malicious-document detection,
+  wired the same way; `--no-pdf` / `--pdf-threshold`; adds coverage of T1059.007 and
+  T1204.001 and joins T1027 / T1059 / T1105 / T1204.002). CHM and ISO remain. Each lands
+  with its own fuzz harness (see the parser-fuzzing gate).
 - [ ] Quarantine + canary primitives in the OSS engine: quarantine DB with
   integrity-checked restore, decoy/canary files as cheap ground truth for the behavior
   engine. The console ships full response by design; OSS analysts still need an honest
@@ -637,12 +643,12 @@ is part of the deliverable.
   Phase 1 gates.
   Progress: **every parser shipped so far is fuzzed** — `FuzzParsePE`,
   `FuzzParseELF`, `FuzzAnalyze` (static), `FuzzScan` (stego),
-  `FuzzScanHeuristicsData`, `FuzzAnalyze` (encchain), `FuzzAnalyze` (lnk) and
-  `FuzzAnalyze` (ole, the [MS-CFB] + [MS-OVBA] parsers), all in `make fuzz`
-  with seed corpora that also run as fast unit tests under `make test`. The
-  item stays open for the parsers not yet written (UEFI → Phase 8,
-  PDF/CHM/ISO → Phase 9 document & archive vectors); each lands with its fuzz
-  harness in the same change.
+  `FuzzScanHeuristicsData`, `FuzzAnalyze` (encchain), `FuzzAnalyze` (lnk),
+  `FuzzAnalyze` (ole, the [MS-CFB] + [MS-OVBA] parsers) and `FuzzAnalyze` (pdf),
+  all in `make fuzz` with seed corpora that also run as fast unit tests under
+  `make test`. The item stays open for the parsers not yet written (UEFI →
+  Phase 8, CHM/ISO → Phase 9 document & archive vectors); each lands with its
+  fuzz harness in the same change.
 - [ ] macOS decision, explicitly: Mach-O scanner plus the LOOBins content already
   ingested. Scope is set at the end of Phase 2 — OSS engine only, or console sensor
   surface. The one thing not accepted is drifting half-committed for two releases.

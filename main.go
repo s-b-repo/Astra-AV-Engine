@@ -19,6 +19,7 @@ import (
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -122,6 +123,7 @@ type scanFlags struct {
 	noEncChain        bool
 	noLNK             bool
 	noOLE             bool
+	noPDF             bool
 	fuzzyDB           string
 	heurThreshold     int
 	staticThreshold   int
@@ -129,6 +131,7 @@ type scanFlags struct {
 	encChainThreshold int
 	lnkThreshold      int
 	oleThreshold      int
+	pdfThreshold      int
 	format, output    string
 	pretty            bool
 	failOn            string
@@ -163,6 +166,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&f.lnkThreshold, "lnk-threshold", lnk.Threshold, "score at which a Shell Link (.lnk) match is reported suspicious")
 	fs.BoolVar(&f.noOLE, "no-ole", false, "disable the OLE compound-file (VBA macro) pass")
 	fs.IntVar(&f.oleThreshold, "ole-threshold", ole.Threshold, "score at which an OLE macro match is reported suspicious")
+	fs.BoolVar(&f.noPDF, "no-pdf", false, "disable the PDF malicious-document pass")
+	fs.IntVar(&f.pdfThreshold, "pdf-threshold", pdf.Threshold, "score at which a PDF document match is reported suspicious")
 	fs.BoolVar(&f.noFusion, "no-fusion", false, "disable the fusion lattice (corroboration of sub-threshold detectors)")
 	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
 	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
@@ -221,6 +226,10 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "[ERROR] --ole-threshold must be at least 1")
 		return report.ExitUsage
 	}
+	if f.pdfThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --pdf-threshold must be at least 1")
+		return report.ExitUsage
+	}
 
 	opts := []report.Option{
 		report.WithToolName(toolName),
@@ -233,6 +242,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		report.WithEncChainThreshold(f.encChainThreshold),
 		report.WithLNKThreshold(f.lnkThreshold),
 		report.WithOLEThreshold(f.oleThreshold),
+		report.WithPDFThreshold(f.pdfThreshold),
 		report.WithIndent(f.pretty),
 	}
 	if f.dir != "" && len(targets) == 1 {
@@ -385,6 +395,11 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	} else {
 		status("[*] OLE macro pass enabled (threshold %d)", f.oleThreshold)
 	}
+	if f.noPDF {
+		status("[*] PDF document pass disabled")
+	} else {
+		status("[*] PDF document pass enabled (threshold %d)", f.pdfThreshold)
+	}
 	if f.noFusion {
 		status("[*] Fusion disabled")
 	}
@@ -406,6 +421,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		LNKThreshold:       f.lnkThreshold,
 		OLE:                !f.noOLE,
 		OLEThreshold:       f.oleThreshold,
+		PDF:                !f.noPDF,
+		PDFThreshold:       f.pdfThreshold,
 		NoFusion:           f.noFusion,
 		MaxInMemory:        f.maxInMemoryMiB << 20,
 		Jobs:               f.jobs,

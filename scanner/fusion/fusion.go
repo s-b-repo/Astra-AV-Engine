@@ -418,4 +418,5 @@ const (
 	SourceEncChain   = "encchain"
 	SourceLNK        = "lnk"
 	SourceOLE        = "ole"
+	SourcePDF        = "pdf"
 )

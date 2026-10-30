@@ -12,6 +12,7 @@ import (
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
+	"github.com/cau-edr/cau/scanner/pdf"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -42,7 +43,11 @@ import (
 // 1.6.0 added the optional per-file "ole" object (OLE compound-file / VBA
 // macro analysis) and the summary fields "ole_detections" / "ole_threshold"
 // (additive: minor bump).
-const JSONSchemaVersion = "1.6.0"
+//
+// 1.7.0 added the optional per-file "pdf" object (PDF malicious-document
+// analysis) and the summary fields "pdf_detections" / "pdf_threshold"
+// (additive: minor bump).
+const JSONSchemaVersion = "1.7.0"
 
 // Overall and per-file verdict strings carried by the JSON document. They are
 // lower-case on purpose: they are enum values for machines, not banners.
@@ -82,6 +87,7 @@ type Summary struct {
 	EncChainDetections  int `json:"encchain_detections"`
 	LNKDetections       int `json:"lnk_detections"`
 	OLEDetections       int `json:"ole_detections"`
+	PDFDetections       int `json:"pdf_detections"`
 	// FusionDetections counts files the fusion lattice reports as suspicious
 	// although no single detector crossed its own threshold.
 	FusionDetections   int    `json:"fusion_detections"`
@@ -93,6 +99,7 @@ type Summary struct {
 	EncChainThreshold  int    `json:"encchain_threshold"`
 	LNKThreshold       int    `json:"lnk_threshold"`
 	OLEThreshold       int    `json:"ole_threshold"`
+	PDFThreshold       int    `json:"pdf_threshold"`
 	Verdict            string `json:"verdict"`
 	FailOn             string `json:"fail_on"`
 	ExitCode           int    `json:"exit_code"`
@@ -113,6 +120,7 @@ type File struct {
 	EncChain   *EncChain   `json:"encchain,omitempty"`
 	LNK        *LNK        `json:"lnk,omitempty"`
 	OLE        *OLE        `json:"ole,omitempty"`
+	PDF        *PDF        `json:"pdf,omitempty"`
 	Fusion     *Fusion     `json:"fusion,omitempty"`
 	Warnings   []string    `json:"warnings,omitempty"`
 	Error      string      `json:"error,omitempty"`
@@ -517,6 +525,28 @@ type OLEFinding struct {
 	Evidence  string `json:"evidence,omitempty"`
 }
 
+// PDF is the per-file PDF malicious-document analysis.
+type PDF struct {
+	Score         int          `json:"score"`
+	Threshold     int          `json:"threshold"`
+	Detected      bool         `json:"detected"`
+	Skipped       string       `json:"skipped,omitempty"`
+	Version       string       `json:"version,omitempty"`
+	HasJavaScript bool         `json:"has_javascript,omitempty"`
+	HasOpenAction bool         `json:"has_openaction,omitempty"`
+	Encrypted     bool         `json:"encrypted,omitempty"`
+	Findings      []PDFFinding `json:"findings,omitempty"`
+}
+
+// PDFFinding is one PDF detection signal.
+type PDFFinding struct {
+	Class     string `json:"class"`
+	Score     int    `json:"score"`
+	Technique string `json:"technique,omitempty"`
+	Detail    string `json:"detail"`
+	Evidence  string `json:"evidence,omitempty"`
+}
+
 // Fusion is the lattice's view over every detector that ran on the file.
 type Fusion struct {
 	Tier       string  `json:"tier"`
@@ -612,6 +642,7 @@ func (c config) buildDocument(in Input) Document {
 			EncChainDetections:  len(in.EncChainBreach(c.encChainThreshold)),
 			LNKDetections:       len(in.LNKBreach(c.lnkThreshold)),
 			OLEDetections:       len(in.OLEBreach(c.oleThreshold)),
+			PDFDetections:       len(in.PDFBreach(c.pdfThreshold)),
 			FusionDetections:    len(in.FusionCorroborated()),
 			Errors:              in.ErrorCount(),
 			ElapsedMS:           in.Elapsed.Milliseconds(),
@@ -621,6 +652,7 @@ func (c config) buildDocument(in Input) Document {
 			EncChainThreshold:   c.encChainThreshold,
 			LNKThreshold:        c.lnkThreshold,
 			OLEThreshold:        c.oleThreshold,
+			PDFThreshold:        c.pdfThreshold,
 			Verdict:             c.overallVerdict(in),
 			FailOn:              c.failOn.String(),
 			ExitCode:            code,
@@ -666,6 +698,7 @@ func (c config) overallVerdict(in Input) string {
 	case len(in.HeuristicBreach(c.heuristicThreshold)) > 0, len(in.StaticBreach(c.staticThreshold)) > 0,
 		len(in.StegoBreach(c.stegoThreshold)) > 0, len(in.EncChainBreach(c.encChainThreshold)) > 0,
 		len(in.LNKBreach(c.lnkThreshold)) > 0, len(in.OLEBreach(c.oleThreshold)) > 0,
+		len(in.PDFBreach(c.pdfThreshold)) > 0,
 		len(in.FusionCorroborated()) > 0:
 		return JSONVerdictSuspicious
 	default:
@@ -751,6 +784,12 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 		if res.OLE != nil {
 			f.OLE = c.buildOLE(res.OLE)
 			if f.OLE.Detected && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
+		if res.PDF != nil {
+			f.PDF = c.buildPDF(res.PDF)
+			if f.PDF.Detected && f.Verdict == JSONVerdictClean {
 				f.Verdict = JSONVerdictSuspicious
 			}
 		}
@@ -1096,6 +1135,29 @@ func (c config) buildOLE(o *ole.Result) *OLE {
 	}
 	for _, f := range o.Findings {
 		out.Findings = append(out.Findings, OLEFinding{
+			Class: c.boundedMessage(f.Class), Score: f.Score,
+			Technique: c.boundedMessage(f.Technique),
+			Detail:    c.boundedMessage(f.Detail), Evidence: c.boundedMessage(f.Evidence),
+		})
+	}
+	return out
+}
+
+func (c config) buildPDF(p *pdf.Result) *PDF {
+	out := &PDF{
+		Score:     p.Score,
+		Threshold: pdfThresholdFor(p, c.pdfThreshold),
+		Detected:  pdfBreached(p, c.pdfThreshold),
+		Skipped:   c.boundedMessage(p.Skipped),
+	}
+	if p.Parsed != nil {
+		out.Version = c.boundedMessage(p.Parsed.Version)
+		out.HasJavaScript = p.Parsed.HasJavaScript
+		out.HasOpenAction = p.Parsed.HasOpenAction
+		out.Encrypted = p.Parsed.Encrypted
+	}
+	for _, f := range p.Findings {
+		out.Findings = append(out.Findings, PDFFinding{
 			Class: c.boundedMessage(f.Class), Score: f.Score,
 			Technique: c.boundedMessage(f.Technique),
 			Detail:    c.boundedMessage(f.Detail), Evidence: c.boundedMessage(f.Evidence),
