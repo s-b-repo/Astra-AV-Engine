@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cau-edr/cau/scanner/encchain"
+	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -70,6 +71,12 @@ type Engine struct {
 	// EncChainThreshold overrides encchain.Threshold (0 = package default).
 	EncChainThreshold int
 
+	// LNK enables the Windows Shell Link (.lnk) detector. Its result rides on
+	// ScanResult.LNK.
+	LNK bool
+	// LNKThreshold overrides lnk.Threshold (0 = package default).
+	LNKThreshold int
+
 	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
 	// it costs nothing: it is a view over results already computed.
 	NoFusion bool
@@ -118,6 +125,13 @@ func (e *Engine) encChainThreshold() int {
 		return e.EncChainThreshold
 	}
 	return encchain.Threshold
+}
+
+func (e *Engine) lnkThreshold() int {
+	if e.LNKThreshold > 0 {
+		return e.LNKThreshold
+	}
+	return lnk.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -277,6 +291,22 @@ func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 				FilePath:  path,
 				Size:      int(fi.Size()),
 				Threshold: e.encChainThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── Windows Shell Link (.lnk) ──────────────────────
+	if e.LNK {
+		if data != nil {
+			res.LNK = lnk.Analyze(data, lnk.Options{Threshold: e.lnkThreshold()})
+			res.LNK.FilePath = path
+		} else {
+			res.LNK = &lnk.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.lnkThreshold(),
 				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
 					fi.Size(), e.maxInMemory()),
 			}

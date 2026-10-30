@@ -10,6 +10,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -32,7 +33,11 @@ import (
 // 1.4.0 added the optional per-file "encchain" object (encoded-executable
 // analysis) and the summary fields "encchain_detections" /
 // "encchain_threshold" (additive: minor bump).
-const JSONSchemaVersion = "1.4.0"
+//
+// 1.5.0 added the optional per-file "lnk" object (Windows Shell Link
+// analysis) and the summary fields "lnk_detections" / "lnk_threshold"
+// (additive: minor bump).
+const JSONSchemaVersion = "1.5.0"
 
 // Overall and per-file verdict strings carried by the JSON document. They are
 // lower-case on purpose: they are enum values for machines, not banners.
@@ -70,6 +75,7 @@ type Summary struct {
 	StaticDetections    int `json:"static_detections"`
 	StegoDetections     int `json:"stego_detections"`
 	EncChainDetections  int `json:"encchain_detections"`
+	LNKDetections       int `json:"lnk_detections"`
 	// FusionDetections counts files the fusion lattice reports as suspicious
 	// although no single detector crossed its own threshold.
 	FusionDetections   int    `json:"fusion_detections"`
@@ -79,6 +85,7 @@ type Summary struct {
 	StaticThreshold    int    `json:"static_threshold"`
 	StegoThreshold     int    `json:"stego_threshold"`
 	EncChainThreshold  int    `json:"encchain_threshold"`
+	LNKThreshold       int    `json:"lnk_threshold"`
 	Verdict            string `json:"verdict"`
 	FailOn             string `json:"fail_on"`
 	ExitCode           int    `json:"exit_code"`
@@ -97,6 +104,7 @@ type File struct {
 	Static     *Static     `json:"static,omitempty"`
 	Stego      *Stego      `json:"stego,omitempty"`
 	EncChain   *EncChain   `json:"encchain,omitempty"`
+	LNK        *LNK        `json:"lnk,omitempty"`
 	Fusion     *Fusion     `json:"fusion,omitempty"`
 	Warnings   []string    `json:"warnings,omitempty"`
 	Error      string      `json:"error,omitempty"`
@@ -460,6 +468,27 @@ type EncChainFinding struct {
 	Detail    string `json:"detail"`
 }
 
+// LNK is the per-file Windows Shell Link analysis: malicious-shortcut
+// delivery signals read from the [MS-SHLLINK] structure.
+type LNK struct {
+	Score     int          `json:"score"`
+	Threshold int          `json:"threshold"`
+	Detected  bool         `json:"detected"`
+	Skipped   string       `json:"skipped,omitempty"`
+	TargetExt string       `json:"target_ext,omitempty"`
+	ArgsLen   int          `json:"args_len,omitempty"`
+	Findings  []LNKFinding `json:"findings,omitempty"`
+}
+
+// LNKFinding is one Shell Link detection signal.
+type LNKFinding struct {
+	Class     string `json:"class"`
+	Score     int    `json:"score"`
+	Technique string `json:"technique,omitempty"`
+	Detail    string `json:"detail"`
+	Evidence  string `json:"evidence,omitempty"`
+}
+
 // Fusion is the lattice's view over every detector that ran on the file.
 type Fusion struct {
 	Tier       string  `json:"tier"`
@@ -553,6 +582,7 @@ func (c config) buildDocument(in Input) Document {
 			StaticDetections:    len(in.StaticBreach(c.staticThreshold)),
 			StegoDetections:     len(in.StegoBreach(c.stegoThreshold)),
 			EncChainDetections:  len(in.EncChainBreach(c.encChainThreshold)),
+			LNKDetections:       len(in.LNKBreach(c.lnkThreshold)),
 			FusionDetections:    len(in.FusionCorroborated()),
 			Errors:              in.ErrorCount(),
 			ElapsedMS:           in.Elapsed.Milliseconds(),
@@ -560,6 +590,7 @@ func (c config) buildDocument(in Input) Document {
 			StaticThreshold:     c.staticThreshold,
 			StegoThreshold:      c.stegoThreshold,
 			EncChainThreshold:   c.encChainThreshold,
+			LNKThreshold:        c.lnkThreshold,
 			Verdict:             c.overallVerdict(in),
 			FailOn:              c.failOn.String(),
 			ExitCode:            code,
@@ -604,6 +635,7 @@ func (c config) overallVerdict(in Input) string {
 		return JSONVerdictMalicious
 	case len(in.HeuristicBreach(c.heuristicThreshold)) > 0, len(in.StaticBreach(c.staticThreshold)) > 0,
 		len(in.StegoBreach(c.stegoThreshold)) > 0, len(in.EncChainBreach(c.encChainThreshold)) > 0,
+		len(in.LNKBreach(c.lnkThreshold)) > 0,
 		len(in.FusionCorroborated()) > 0:
 		return JSONVerdictSuspicious
 	default:
@@ -677,6 +709,12 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 		if res.EncChain != nil {
 			f.EncChain = c.buildEncChain(res.EncChain)
 			if f.EncChain.Detected && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
+		if res.LNK != nil {
+			f.LNK = c.buildLNK(res.LNK)
+			if f.LNK.Detected && f.Verdict == JSONVerdictClean {
 				f.Verdict = JSONVerdictSuspicious
 			}
 		}
@@ -983,6 +1021,27 @@ func (c config) buildEncChain(e *encchain.Result) *EncChain {
 			Depth: f.Depth, Offset: f.Offset, RunBytes: f.RunBytes,
 			Technique: c.boundedMessage(f.Technique), Novel: c.boundedMessage(f.Novel),
 			Detail: c.boundedMessage(f.Detail),
+		})
+	}
+	return out
+}
+
+func (c config) buildLNK(l *lnk.Result) *LNK {
+	out := &LNK{
+		Score:     l.Score,
+		Threshold: lnkThresholdFor(l, c.lnkThreshold),
+		Detected:  lnkBreached(l, c.lnkThreshold),
+		Skipped:   c.boundedMessage(l.Skipped),
+	}
+	if l.Parsed != nil {
+		out.TargetExt = c.boundedMessage(l.Parsed.TargetExt)
+		out.ArgsLen = l.Parsed.ArgsLen
+	}
+	for _, f := range l.Findings {
+		out.Findings = append(out.Findings, LNKFinding{
+			Class: c.boundedMessage(f.Class), Score: f.Score,
+			Technique: c.boundedMessage(f.Technique),
+			Detail:    c.boundedMessage(f.Detail), Evidence: c.boundedMessage(f.Evidence),
 		})
 	}
 	return out

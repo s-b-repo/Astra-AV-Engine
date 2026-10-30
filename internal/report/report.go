@@ -44,6 +44,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -85,6 +86,8 @@ const (
 	DefaultStegoThreshold = stego.DefaultThreshold
 	// DefaultEncChainThreshold mirrors encchain.DefaultThreshold.
 	DefaultEncChainThreshold = encchain.DefaultThreshold
+	// DefaultLNKThreshold mirrors lnk.DefaultThreshold.
+	DefaultLNKThreshold = lnk.DefaultThreshold
 )
 
 // TruncationMarker is appended to any string that was cut short. Blob-shaped
@@ -389,6 +392,30 @@ func encChainBreached(e *encchain.Result, fallback int) bool {
 	return e != nil && e.Skipped == "" && e.Score >= encChainThresholdFor(e, fallback)
 }
 
+// LNKBreach returns the scan results whose Shell Link score reached the
+// threshold.
+func (in Input) LNKBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if lnkBreached(r.LNK, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func lnkThresholdFor(l *lnk.Result, fallback int) int {
+	if l != nil && l.Threshold > 0 {
+		return l.Threshold
+	}
+	return fallback
+}
+
+// lnkBreached is the single definition of "the Shell Link detector fired".
+func lnkBreached(l *lnk.Result, fallback int) bool {
+	return l != nil && l.Skipped == "" && l.Score >= lnkThresholdFor(l, fallback)
+}
+
 func stegoThresholdFor(s *stego.Result, fallback int) int {
 	if s != nil && s.Threshold > 0 {
 		return s.Threshold
@@ -446,6 +473,7 @@ type config struct {
 	staticThreshold    int
 	stegoThreshold     int
 	encChainThreshold  int
+	lnkThreshold       int
 	stat               StatFunc
 	now                func() time.Time
 
@@ -528,6 +556,9 @@ func WithStegoThreshold(n int) Option { return func(c *config) { c.stegoThreshol
 // detector ran at.
 func WithEncChainThreshold(n int) Option { return func(c *config) { c.encChainThreshold = n } }
 
+// WithLNKThreshold records which threshold the Shell Link detector ran at.
+func WithLNKThreshold(n int) Option { return func(c *config) { c.lnkThreshold = n } }
+
 // WithStatFunc overrides how file sizes are resolved (os.Stat by default).
 func WithStatFunc(f StatFunc) Option { return func(c *config) { c.stat = f } }
 
@@ -588,6 +619,7 @@ func defaultConfig() config {
 		staticThreshold:     DefaultStaticThreshold,
 		stegoThreshold:      DefaultStegoThreshold,
 		encChainThreshold:   DefaultEncChainThreshold,
+		lnkThreshold:        DefaultLNKThreshold,
 		stat:                osFileSize,
 		now:                 time.Now,
 
@@ -638,6 +670,9 @@ func (c *config) normalize() {
 	}
 	if c.encChainThreshold <= 0 {
 		c.encChainThreshold = DefaultEncChainThreshold
+	}
+	if c.lnkThreshold <= 0 {
+		c.lnkThreshold = DefaultLNKThreshold
 	}
 	if c.stat == nil {
 		c.stat = osFileSize

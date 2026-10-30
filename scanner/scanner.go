@@ -18,6 +18,7 @@ import (
 
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
+	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -69,6 +70,11 @@ type ScanResult struct {
 	// EncChain is the encoded-executable analysis (base64/hex layers that
 	// decode to a PE/ELF header). nil when the detector did not run.
 	EncChain *encchain.Result
+
+	// LNK is the Windows Shell Link (.lnk) analysis (malicious-shortcut
+	// delivery: interpreter arguments, obfuscation, lures). nil when the
+	// detector did not run. A breach is the SUSPICIOUS tier.
+	LNK *lnk.Result
 
 	// Fusion is the lattice's view over every detector that ran: which
 	// sources agreed, how strongly, and what techniques the agreeing evidence
