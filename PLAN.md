@@ -33,6 +33,50 @@ authority, and governance are inherently stateful and cannot live in a scanner.
 
 ---
 
+## Program status — what's shipped (engine)
+
+A roll-up of the OSS engine as it stands; the phase sections below hold the
+detail and the open items. Everything here is measured and gated in CI
+(`make ci`: vet, race tests, rule lint, coverage gate, eval gate).
+
+**Detectors (six, single-pass, plus a fusion lattice):**
+- Hash signatures, YARA (in-process libyara), string/API heuristics.
+- Static structure — own bounds-checked PE and ELF parsers, entropy, packer,
+  overlay, Authenticode, TLSH/ssdeep/imphash similarity.
+- Invisible-codepoint (stego) pass.
+- Encoded-executable pass (`scanner/encchain`) — base64/hex layers decoding to
+  a PE/ELF header; measured 0.020% FP over 159,339 benign files.
+- Fusion lattice — corroboration of sub-threshold detectors; never lowers a
+  verdict.
+
+**Program surfaces:**
+- ATT&CK coverage matrix derived from the content, gated against
+  `baselines/attack-coverage.txt`; text / JSON / Navigator / SARIF output.
+  Covered techniques are recorded; gaps are published, never padded.
+- YARA rule linter (`cau rules lint`), `cau rules list`.
+- Output: text, versioned JSON (schema 1.4.0), SARIF 2.1.0, OCSF 1.3.0.
+- Evaluation harness with a committed smoke corpus and regression gates.
+
+**Robustness (engine hardening):**
+- Coverage-guided fuzzers on every untrusted-input parser (`make fuzz`),
+  per-file panic isolation, and a reachable PE/ELF-parser OOB plus overflow and
+  32-bit bugs fixed.
+- Detection-robustness harnesses for all four content detectors; they found and
+  closed two case-sensitivity gaps (wannacry, generic-ransomware extensions).
+
+**ATT&CK coverage of shipped content:** T1140 and T1027.013 covered by the
+encoded-executable detector; **T1564.001 is the sole remaining declared content
+gap** (sensor-owned — a file scanner could only anchor on an attacker-controlled
+name, which the analytic-design rule forbids).
+
+**Not yet shipped (see phases):** the MCP server (Phase 3), intelligence feeds
+and the EU-framework bindings (Phase 4), the ML ladder (Phase 5), the full
+layer-peeler and the NOVEL-012 follow-ups (Phase 10 / Phase 12), firmware and
+the broader format/plane sweeps (Phases 8-9), and the entire console/sensor
+control plane (proprietary).
+
+---
+
 ## Phase 0 — Unblock the fork (blocking) — DONE 2026-10-24
 
 All findings were verified against `0f0c000` in `s-b-repo/Astra-AV-Engine` and
@@ -2596,7 +2640,7 @@ localization glossary (above) uses as canonical sources.
 
 ---
 
-## Phase 12 — Robustness, fuzzing & detection-quality hardening (engine)
+## Phase 12 — Robustness, fuzzing & detection-quality hardening (engine) — DONE 2026-10-30 (follow-ups open)
 
 Everything here is engine-side, measured, and standard-library only. The first
 block is shipped (2026-10-29); the second block is scoped-but-measured-pending
