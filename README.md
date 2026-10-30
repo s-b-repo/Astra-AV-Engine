@@ -27,6 +27,7 @@ cau rules lint --rules ./signature-base --profile generic            # lint a th
 | **Heuristics** | does it name suspicious capabilities? | SUSPICIOUS with a capped score, the categories responsible and their ATT&CK techniques |
 | **Static structure** (own PE and ELF parsers, entropy, TLSH / ssdeep / imphash) | is it *built* like something that hides? | SUSPICIOUS with labeled anomaly classes: packer, RWX sections or segments, forged build record, implausible signer, appended payload, stripped section table, non-system program interpreter, writable `RPATH`, libc interposer, unsigned kernel module, similarity to a known sample |
 | **Invisible codepoints** | does this text or code carry hidden codepoints? | SUSPICIOUS with every zero-width, bidi-override, TAG or variation-selector codepoint, its line, and the context rules that excused the rest |
+| **Encoded executable** (base64/hex, multi-layer) | is an executable hidden behind text encoding? | SUSPICIOUS with the decoded PE/ELF, the encoding and the layer depth |
 | **Fusion** | do several detectors agree, even below their own thresholds? | one fused verdict naming the sources that agreed, their roles and techniques |
 
 Hash and YARA hits are MALICIOUS; scores are SUSPICIOUS and never promoted;
@@ -96,6 +97,7 @@ failed, 4 usage.
 | static structure stays quiet on a Linux system | 4,974 ELF files under Kali's `/usr/bin`, `/usr/sbin`, `/usr/lib/x86_64-linux-gnu`, `/usr/libexec`, `/usr/lib/systemd`; 40 kernel modules | 0 cross the threshold, 21 carry one weight-1 observation, every module scores 0, a UPX-packed `ls` scores 6 with the packer named |
 | invisible-codepoint pass is usable on real text | 70,102 benign text artifacts | 0.10 % false positives, 348 legitimate uses excused by named rules |
 | fusion adds no false positives | 349 files | 0 fused-only detections, 0 new false positives |
+| encoded-executable detection is low-noise | 159,339 benign files (Kali doc/python/nmap/metasploit trees) | 0.020 % detections, every one a genuine embedded encoded executable |
 | nothing regresses silently | `corpus/smoke` on every push | 100 % recall, 0 false positives, gated in CI against the committed baseline |
 | coverage claims are derived, not typed | `cau coverage` on every push | 37 techniques with content and 3 declared gaps, gated against `baselines/attack-coverage.txt`; every bundled rule passes `cau rules lint` |
 

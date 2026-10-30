@@ -78,8 +78,8 @@ func TestSmokeCorpusManifestValidates(t *testing.T) {
 	if !v.OK() {
 		t.Fatalf("smoke corpus has errors:\n%s", v)
 	}
-	if v.Malware != 7 || v.Benign != 10 {
-		t.Errorf("smoke corpus: %d malware, %d benign, want 7/10\n%s", v.Malware, v.Benign, v)
+	if v.Malware != 8 || v.Benign != 10 {
+		t.Errorf("smoke corpus: %d malware, %d benign, want 8/10\n%s", v.Malware, v.Benign, v)
 	}
 	// The empty benign file is a warning, by design.
 	var sawEmpty bool

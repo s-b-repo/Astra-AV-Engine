@@ -116,7 +116,7 @@ func TestSourceSummaries(t *testing.T) {
 
 func TestExpectParseCompareRecord(t *testing.T) {
 	m := build(t)
-	src := "# comment\nT1003 covered heuristic, yara\nT1140   gap   no decode analytic\nT1486 covered\n"
+	src := "# comment\nT1003 covered heuristic, yara\nT1620   gap   no decode analytic\nT1486 covered\n"
 	e, err := ParseExpect(strings.NewReader(src))
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestExpectParseCompareRecord(t *testing.T) {
 	if kinds["undeclared"] == 0 || kinds["regression"] != 0 || kinds["gap-closed"] != 0 {
 		t.Errorf("problems = %+v", problems)
 	}
-	if len(m.Gaps) != 1 || m.Gaps[0].ID != "T1140" || m.Gaps[0].Name == "" {
+	if len(m.Gaps) != 1 || m.Gaps[0].ID != "T1620" || m.Gaps[0].Name == "" {
 		t.Errorf("gaps = %+v", m.Gaps)
 	}
 
@@ -152,7 +152,7 @@ func TestExpectParseCompareRecord(t *testing.T) {
 	if p := Compare(m2, e2); len(p) != 0 {
 		t.Errorf("recorded expectation disagrees: %+v", p)
 	}
-	if !strings.Contains(string(rec), "T1140       gap       no decode analytic") {
+	if !strings.Contains(string(rec), "T1620       gap       no decode analytic") {
 		t.Errorf("gap row not preserved:\n%s", rec)
 	}
 
@@ -167,14 +167,14 @@ func TestExpectParseCompareRecord(t *testing.T) {
 
 func TestRenderers(t *testing.T) {
 	m := build(t)
-	e, _ := ParseExpect(strings.NewReader("T1140 gap planned\n"))
+	e, _ := ParseExpect(strings.NewReader("T1620 gap planned\n"))
 	Compare(m, e)
 
 	var text bytes.Buffer
 	if err := WriteText(&text, m); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Pyramid of Pain", "T1003", "OS Credential Dumping", "no engine content", "T1140", "planned", "no ATT&CK technique", "heuristic/suspicious-paths"} {
+	for _, want := range []string{"Pyramid of Pain", "T1003", "OS Credential Dumping", "no engine content", "T1620", "planned", "no ATT&CK technique", "heuristic/suspicious-paths"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("text output lacks %q:\n%s", want, text.String())
 		}
@@ -211,7 +211,7 @@ func TestRenderers(t *testing.T) {
 	for _, raw := range techs {
 		tq := raw.(map[string]interface{})
 		switch tq["techniqueID"] {
-		case "T1140":
+		case "T1620":
 			gapSeen = tq["score"].(float64) == 0 && tq["color"] == "#d9d9d9"
 		case "T1003":
 			credSeen = tq["score"].(float64) == 2 && strings.Contains(tq["comment"].(string), "mimikatz_strings")

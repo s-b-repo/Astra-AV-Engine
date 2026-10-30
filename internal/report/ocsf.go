@@ -293,6 +293,18 @@ func (c config) ocsfFinding(doc Document, f File, now int64) ocsfFinding {
 		titleParts = append(titleParts, fmt.Sprintf("invisible codepoints %d/%d", st.Score, st.Threshold))
 		fi.Unmapped["stego"] = map[string]any{"score": st.Score, "threshold": st.Threshold, "classes": classes}
 	}
+	if ec := f.EncChain; ec != nil && ec.Detected {
+		sources = append(sources, "encchain")
+		var classes []string
+		for _, fd := range ec.Findings {
+			classes = append(classes, fd.Class)
+			if fd.Technique != "" {
+				techs[fd.Technique] = true
+			}
+		}
+		titleParts = append(titleParts, fmt.Sprintf("encoded executable %d/%d", ec.Score, ec.Threshold))
+		fi.Unmapped["encchain"] = map[string]any{"score": ec.Score, "threshold": ec.Threshold, "classes": classes}
+	}
 	if fu := f.Fusion; fu != nil {
 		for _, t := range fu.Techniques {
 			techs[t] = true

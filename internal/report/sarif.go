@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -27,7 +28,8 @@ const (
 	SARIFRuleFusion = "fusion/corroborated"
 	// SARIFRuleStegoPrefix prefixes one rule per scored stego class
 	// ("stego/zero-width", "stego/bidi-control", ...).
-	SARIFRuleStegoPrefix = "stego/"
+	SARIFRuleStegoPrefix    = "stego/"
+	SARIFRuleEncChainPrefix = "encchain/"
 )
 
 // ── SARIF object model (only the subset the reporter emits) ──────────────────
@@ -223,6 +225,14 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 				}
 			}
 		}
+		for _, res := range in.Results {
+			if !encChainBreached(res.EncChain, c.encChainThreshold) {
+				continue
+			}
+			for _, f := range res.EncChain.Findings {
+				table.add(c.encChainRule(f))
+			}
+		}
 		if len(in.FusionCorroborated()) > 0 {
 			table.add(sarifRule{
 				ID:               SARIFRuleFusion,
@@ -330,6 +340,9 @@ func (r *SARIFReporter) build(in Input) sarifLog {
 		}
 		if res.Stego != nil {
 			results = c.appendStego(results, &table, res)
+		}
+		if res.EncChain != nil {
+			results = c.appendEncChain(results, &table, res)
 		}
 		if res.Fusion != nil {
 			results = c.appendFusion(results, &table, res)
@@ -654,6 +667,53 @@ func (c config) appendStego(results []sarifResult, table *ruleTable, res scanner
 			RuleIndex:           table.index[rule.ID],
 			Level:               c.levelHeuristic,
 			Message:             sarifMessage{Text: c.boundedMessage(strings.TrimPrefix(f.Class, "stego.") + ": " + f.Detail)},
+			Locations:           []sarifLocation{l},
+			PartialFingerprints: c.fingerprints(res),
+			Properties:          props,
+		})
+	}
+	return results
+}
+
+func (c config) encChainRule(f encchain.Finding) sarifRule {
+	class := strings.TrimPrefix(f.Class, "encchain.")
+	return sarifRule{
+		ID:               SARIFRuleEncChainPrefix + class,
+		Name:             "EncodedExecutable_" + strings.ToUpper(class),
+		ShortDescription: &sarifMessage{Text: "Executable hidden behind text encoding (" + class + ")"},
+		FullDescription:  &sarifMessage{Text: "A base64/hex run decodes, possibly through several layers, to a valid PE or ELF header. The signal is the decoded content, which an attacker cannot shed without losing the payload; it is suspicious capability, not a confirmed detection."},
+		DefaultConfig:    &sarifRuleConfig{Level: c.levelHeuristic},
+		Properties:       map[string]interface{}{"kind": "encchain"},
+	}
+}
+
+func (c config) appendEncChain(results []sarifResult, table *ruleTable, res scanner.ScanResult) []sarifResult {
+	e := res.EncChain
+	if !c.sarifIncludeHeuristics || !encChainBreached(e, c.encChainThreshold) {
+		return results
+	}
+	for _, f := range e.Findings {
+		rule := c.encChainRule(f)
+		l := c.location(res.FilePath, nil)
+		l.PhysicalLocation.Region = &sarifRegion{ByteOffset: int64(f.Offset), ByteLength: f.RunBytes}
+		props := map[string]interface{}{
+			"score":      e.Score,
+			"threshold":  encChainThresholdFor(e, c.encChainThreshold),
+			"classScore": f.Score,
+			"encoding":   c.boundedMessage(f.Encoding),
+			"depth":      f.Depth,
+		}
+		if f.Technique != "" {
+			props["technique"] = f.Technique
+		}
+		if f.Novel != "" {
+			props["novel"] = f.Novel
+		}
+		results = append(results, sarifResult{
+			RuleID:              rule.ID,
+			RuleIndex:           table.index[rule.ID],
+			Level:               c.levelHeuristic,
+			Message:             sarifMessage{Text: c.boundedMessage(f.Detail)},
 			Locations:           []sarifLocation{l},
 			PartialFingerprints: c.fingerprints(res),
 			Properties:          props,

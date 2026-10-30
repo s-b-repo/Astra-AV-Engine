@@ -8,8 +8,8 @@ written in Go. These pages are the reference; the repository
 |---|---|
 | [Installation](installation.md) | requirements, building, installing, release tarballs, where resources are found |
 | [Command-line reference](cli.md) | every command and flag (`scan`, `coverage`, `rules`, `eval`, ...), exit codes, CI recipes |
-| [Detectors](detectors.md) | hash signatures, YARA, heuristics, static structure, invisible codepoints, the fusion lattice |
-| [Output formats](output-formats.md) | the text report, the JSON document (schema 1.3.0), SARIF 2.1.0, OCSF Detection Findings, the `--fail-on` policy |
+| [Detectors](detectors.md) | hash signatures, YARA, heuristics, static structure, invisible codepoints, encoded executables, the fusion lattice |
+| [Output formats](output-formats.md) | the text report, the JSON document (schema 1.4.0), SARIF 2.1.0, OCSF Detection Findings, the `--fail-on` policy |
 | [Detection content](detection-content.md) | signature databases, YARA rule conventions and the linter, the fuzzy-hash database, external rule sets |
 | [Detection engineering](detection-engineering.md) | ADS documents per detector, the ATT&CK coverage matrix and its gate, Pyramid of Pain levels, OCSF |
 | [ADS](ads/README.md) | one Alerting and Detection Strategy per detector |

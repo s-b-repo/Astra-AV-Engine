@@ -42,6 +42,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
@@ -82,6 +83,8 @@ const (
 	DefaultStaticThreshold = static.DefaultThreshold
 	// DefaultStegoThreshold mirrors stego.DefaultThreshold.
 	DefaultStegoThreshold = stego.DefaultThreshold
+	// DefaultEncChainThreshold mirrors encchain.DefaultThreshold.
+	DefaultEncChainThreshold = encchain.DefaultThreshold
 )
 
 // TruncationMarker is appended to any string that was cut short. Blob-shaped
@@ -361,6 +364,31 @@ func (in Input) StegoBreach(threshold int) []scanner.ScanResult {
 	return out
 }
 
+// EncChainBreach returns the scan results whose encoded-executable score
+// reached the threshold.
+func (in Input) EncChainBreach(threshold int) []scanner.ScanResult {
+	var out []scanner.ScanResult
+	for _, r := range in.Results {
+		if encChainBreached(r.EncChain, threshold) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func encChainThresholdFor(e *encchain.Result, fallback int) int {
+	if e != nil && e.Threshold > 0 {
+		return e.Threshold
+	}
+	return fallback
+}
+
+// encChainBreached is the single definition of "the encoded-executable
+// detector fired".
+func encChainBreached(e *encchain.Result, fallback int) bool {
+	return e != nil && e.Skipped == "" && e.Score >= encChainThresholdFor(e, fallback)
+}
+
 func stegoThresholdFor(s *stego.Result, fallback int) int {
 	if s != nil && s.Threshold > 0 {
 		return s.Threshold
@@ -417,6 +445,7 @@ type config struct {
 	heuristicThreshold int
 	staticThreshold    int
 	stegoThreshold     int
+	encChainThreshold  int
 	stat               StatFunc
 	now                func() time.Time
 
@@ -495,6 +524,10 @@ func WithStaticThreshold(n int) Option { return func(c *config) { c.staticThresh
 // actually used.
 func WithStegoThreshold(n int) Option { return func(c *config) { c.stegoThreshold = n } }
 
+// WithEncChainThreshold records which threshold the encoded-executable
+// detector ran at.
+func WithEncChainThreshold(n int) Option { return func(c *config) { c.encChainThreshold = n } }
+
 // WithStatFunc overrides how file sizes are resolved (os.Stat by default).
 func WithStatFunc(f StatFunc) Option { return func(c *config) { c.stat = f } }
 
@@ -554,6 +587,7 @@ func defaultConfig() config {
 		heuristicThreshold:  DefaultHeuristicThreshold,
 		staticThreshold:     DefaultStaticThreshold,
 		stegoThreshold:      DefaultStegoThreshold,
+		encChainThreshold:   DefaultEncChainThreshold,
 		stat:                osFileSize,
 		now:                 time.Now,
 
@@ -601,6 +635,9 @@ func (c *config) normalize() {
 	}
 	if c.stegoThreshold <= 0 {
 		c.stegoThreshold = DefaultStegoThreshold
+	}
+	if c.encChainThreshold <= 0 {
+		c.encChainThreshold = DefaultEncChainThreshold
 	}
 	if c.stat == nil {
 		c.stat = osFileSize

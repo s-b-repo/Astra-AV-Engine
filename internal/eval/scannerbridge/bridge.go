@@ -12,6 +12,7 @@ import (
 
 	"github.com/cau-edr/cau/internal/eval"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -343,6 +344,36 @@ func (d stegoDetector) ScanFile(path string) (eval.Finding, error) {
 			Rule:     "stego/" + strings.TrimPrefix(fd.Class, "stego."),
 			Detail:   fd.Detail,
 		})
+	}
+	return f, nil
+}
+
+// EncChainDetector wraps the encoded-executable detector (base64/hex layers
+// decoding to a PE/ELF header). It fires when the score reaches threshold.
+func EncChainDetector(threshold int) eval.Detector {
+	if threshold <= 0 {
+		threshold = encchain.Threshold
+	}
+	return encChainDetector{threshold: threshold}
+}
+
+type encChainDetector struct{ threshold int }
+
+func (encChainDetector) Name() string { return eval.DetectorEncChain }
+
+func (d encChainDetector) ScanFile(path string) (eval.Finding, error) {
+	start := time.Now()
+	r := encchain.ScanFile(path, encchain.Options{Threshold: d.threshold})
+	f := eval.Finding{Path: path, Verdict: eval.VerdictClean, Duration: time.Since(start)}
+	if r.Skipped != "" || r.Score < d.threshold {
+		return f, nil
+	}
+	f.Verdict = eval.VerdictSuspicious
+	f.Signals = []eval.Signal{{Detector: eval.DetectorEncChain, Rule: "encchain/score",
+		Detail: fmt.Sprintf("score %d/threshold %d; %d candidate(s), %d layer(s) peeled", r.Score, d.threshold, r.Candidates, r.LayersPeeled)}}
+	for _, fd := range r.Findings {
+		f.Signals = append(f.Signals, eval.Signal{Detector: eval.DetectorEncChain,
+			Rule: "encchain/" + strings.TrimPrefix(fd.Class, "encchain."), Detail: fd.Detail})
 	}
 	return f, nil
 }

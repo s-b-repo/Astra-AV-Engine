@@ -2596,6 +2596,120 @@ localization glossary (above) uses as canonical sources.
 
 ---
 
+## Phase 12 — Robustness, fuzzing & detection-quality hardening (engine)
+
+Everything here is engine-side, measured, and standard-library only. The first
+block is shipped (2026-10-29); the second block is scoped-but-measured-pending
+and names the gate each item must pass before it ships, because the remaining
+coverage gaps are hard by nature and the measure-or-don't-ship rule applies.
+
+### Shipped
+
+- [x] **Parser panic-safety.** A focused review and coverage-guided fuzzing of
+      the PE/ELF parsers found and fixed a reachable 64-bit out-of-bounds read
+      (a relocatable object whose `.symtab` declared a sub-minimum `sh_entsize`
+      let the per-entry guard pass while a fixed-size struct read overran the
+      buffer; `parseSymbols` now floors the stride like `parseDynamic`), an
+      address-range overflow that let a wrapped section/segment hide content
+      from the scanner (`addr-base < size` instead of `addr < base+size` in PE
+      `sectionIndexForRVA` and ELF `vaToOffset`/`segmentIndexForVA`), and three
+      32-bit negative-index conversions. Regression test:
+      `TestParseELFSymtabTinyEntsize`.
+- [x] **Per-file panic isolation.** `Engine.ScanFile` recovers per file: a
+      panic in any detector degrades to a per-file error result instead of
+      crashing the scan, so one hostile file can never drop a directory batch
+      (`TestEngineHostileFileDoesNotBreakBatch`).
+- [x] **Fuzz harness** (`make fuzz`): `FuzzParseELF`, `FuzzParsePE`,
+      `FuzzAnalyze`, stego `FuzzScan`, `FuzzScanHeuristicsData`. Each ran
+      millions of mutations with no crash; the seed corpora run as fast unit
+      tests in CI, so they are permanent regression guards. "Never panic on
+      hostile input" is now a documented contributing rule.
+- [x] **Detection-robustness harnesses** for all four content detectors
+      (`scanner/robustness_test.go`, `scanner/static/robustness_test.go`,
+      `scanner/stego/robustness_test.go`): they measure the benign-transform
+      envelope (case fold, UTF-16 widening, NUL-infixing, junk padding,
+      base64) each detector survives on synthetic fixtures, lock in the true
+      positives, and fail if a bundled rule becomes brittle. They found the
+      one real gap below.
+- [x] **wannacry rule hardened.** The robustness harness showed the wannacry
+      YARA rule was case-sensitive while every other bundled rule carried
+      `nocase`, so a case-folded sample evaded it. Closed with `nocase` on its
+      (highly specific) indicator strings; the eval gate confirmed unchanged
+      recall and zero new false positives.
+- [x] **Error-handling swallows** fixed: `--output` close errors on written
+      reports (`scan`/`coverage`/`rules`), `coverage.WriteText`, and the fuzzy
+      TLSH re-parse in `FuzzyDB.Add`.
+
+### Scoped, measured-pending — the remaining coverage gaps
+
+`baselines/attack-coverage.txt` now declares one content gap (T1564.001),
+after the encoded-executable detector closed T1140 and T1027.013. It is
+deferred for a stated reason, not forgotten, and will not be padded into
+"covered" without passing the named gate.
+
+- [x] **T1140 / T1027.013 — encoded-executable detector (content-anchored).**
+      Shipped 2026-10-30 as `scanner/encchain` (`--no-encchain` /
+      `--encchain-threshold`): a bounded, multi-layer base64/hex decoder that
+      flags a run decoding to a valid PE (`MZ` + `PE\0\0` at `e_lfanew`) or
+      ELF header, up to a layer/byte/candidate cap. Content-anchored, never
+      name-anchored; SUSPICIOUS-tier. Wired through the engine, fusion, the
+      text/JSON (schema 1.4.0)/SARIF/OCSF reports, the `encchain` eval detector
+      and a smoke fixture, and the coverage matrix. **Measured:** 0.020 % on
+      159,339 benign files, every hit a genuine embedded encoded executable in
+      offensive tooling or exploit docs. This is the cheap pre-pass of
+      NOVEL-012; the full peeler (nested archives, decompression, emulation
+      fallback) remains Phase 10 work. Coverage expectation flipped T1140 and
+      T1027.013 from gap to covered.
+- [ ] **T1564.001 — hidden artifacts.** Left to the sensor on purpose. A
+      file scanner can only see a name↔content mismatch (an executable image
+      with a hidden dotfile name or a document extension), and a filename is
+      attacker-controlled surface, which the Phase 11 analytic-design rule says
+      not to anchor on. The non-sheddable version of this detection needs
+      filesystem attributes and persistence-dir provenance, which live in the
+      sensor. If an engine-side weak-anchor variant ships, it ships labeled
+      *partial by design*, like the discovery rows, never as full coverage.
+- [ ] **Shellcode atom strength (`$ror13`).** The 3-byte `{ C1 C? 0D }` atom is
+      flagged weak by the rule linter. Tightening the wildcard to the ROR
+      encodings is recall-safe but trips YARA's slow-string warning;
+      lengthening it to a 4+ byte invariant is recall-affecting. **Gate:** a
+      shellcode corpus (Phase 1 real-corpus work) to measure recall before the
+      atom is changed. Until then it stays broad and only counts toward "3 of
+      them".
+
+### Process additions
+
+- [ ] Fold `make fuzz` into a scheduled (not per-PR) CI job with a longer
+      `FUZZTIME`, committing any crasher as a seed under `testdata/fuzz/`.
+- [ ] Extend the detection-robustness harness to every bundled rule as new
+      rules are added, so the nocase/wide contract is enforced per rule, not
+      per sampled family.
+- [ ] A `cau rules lint --strict` gate once the `$ror13` atom is resolved, so
+      the ruleset is warning-clean and strict lint can block merges.
+
+### Encoded-executable detector — next layers (NOVEL-012 continued)
+
+The shipped `scanner/encchain` peels base64/hex to a PE/ELF header. The
+remaining NOVEL-012 surface, each with its own FP gate:
+
+- [ ] **Decode-to-indicator, not just to a header.** Re-run the string/YARA
+      indicators over a decoded layer so a base64-wrapped mimikatz or
+      PowerShell cradle is caught even when the decode is a script, not an
+      executable. Gate: measured FP on the benign text population; cap the
+      re-scan cost per file.
+- [ ] **Container layers.** gzip/zlib/zip/xz as decode layers alongside
+      base64/hex, with the decompression-bomb caps the plan already requires
+      (ratio and absolute-size limits, a global budget shared across layers).
+- [ ] **Chain-depth as a signal.** Report the peel depth as its own weighted
+      observation (a 4-layer wrapper is suspicious whatever the leaf), with the
+      depth distribution measured on the benign population first.
+- [ ] **Provenance reconciliation (console).** An embedded encoded executable
+      inside an official package (installer, security tool) is expected; the
+      console's provenance DB (Phase 7 #5) attenuates those so the engine's
+      SUSPICIOUS tier is not noise in the fleet view.
+- [ ] **Egress URL-param variant (T1048.003 / NOVEL-006).** The same
+      decode-to-indicator logic over URL query parameters, console-side, for
+      encoded exfil — the network complement of the file-side detector.
+
 ## Risks
 
 - **Adoption vs. revenue.** OSS engine too weak → nobody adopts. Too strong → nobody pays.

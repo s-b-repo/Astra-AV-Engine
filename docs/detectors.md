@@ -11,6 +11,7 @@ joins their outcomes. Each detector answers a different question:
 | [Heuristics](#heuristics) | does it name suspicious capabilities? | SUSPICIOUS |
 | [Static structure](#static-structure) | is it *built* like something that hides? | SUSPICIOUS |
 | [Invisible codepoints](#invisible-codepoints-stego) | does this text or code carry hidden codepoints? | SUSPICIOUS |
+| [Encoded executable](#encoded-executable) | is an executable hidden behind text encoding? | SUSPICIOUS |
 | [Fusion](#fusion) | do several of the above agree, even below their own thresholds? | never lowers; raises CLEAN to SUSPICIOUS |
 
 SUSPICIOUS is evidence with a score and an explanation, never a confirmed
@@ -281,6 +282,32 @@ files that enumerate Unicode categories. See [Limitations](limitations.md).
 
 This is the engine half of the plan's NOVEL-001 / NOVEL-002 rows; findings
 carry `technique: T1027` and `novel: NOVEL-001`.
+
+## Encoded executable
+
+`scanner/encchain` answers a question the byte-pattern detectors cannot: is a
+PE or ELF image hidden behind one or more layers of base64 or hex encoding? An
+encoded executable has no contiguous `MZ`/`\x7fELF` sequence for a hash, YARA
+rule or heuristic to match, so a dropper that carries its payload base64-encoded
+in a script, document or `.bs64` blob slips past them.
+
+The detector scans for base64 and hex runs (MIME line-wrapping tolerated),
+decodes each — bounded by a layer cap, a byte budget and a candidate cap so a
+decode bomb cannot exhaust it — and reports a finding when a decoded layer is a
+**valid** PE header (the `MZ` magic plus a `PE\0\0` signature at the
+`e_lfanew` offset) or ELF header (the magic plus a valid class, data encoding
+and version). Peeling more than one layer is reported with its depth. The
+signal is content-anchored: the decoded bytes are an executable, which an
+attacker cannot shed without losing the payload. It is the engine half of the
+plan's NOVEL-012; findings carry `technique` T1027.013 (a straight decode) or
+T1140 (through layers) and `novel` NOVEL-012.
+
+It is SUSPICIOUS-tier, never MALICIOUS: an embedded encoded binary is strong
+evidence, not proof of malice (installers and security tools carry them too).
+Measured over 159,339 benign files from a Kali install, it fired on 32
+(0.020 %), every one a genuine embedded encoded executable in offensive
+tooling or exploit documentation. `--no-encchain` disables it and
+`--encchain-threshold` tunes the score.
 
 ## Fusion
 

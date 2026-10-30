@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
@@ -77,6 +78,9 @@ func (r *TextReporter) Write(w io.Writer, in Input) error {
 		}
 		if hasResult && res.Stego != nil {
 			c.writeStego(bw, res.Stego)
+		}
+		if hasResult && res.EncChain != nil {
+			c.writeEncChain(bw, res.EncChain)
 		}
 		if hasResult && res.Fusion != nil {
 			c.writeFusion(bw, res.FilePath, res.Fusion)
@@ -338,6 +342,29 @@ func (c config) writeStego(w io.Writer, s *stego.Result) {
 	fmt.Fprintln(w)
 }
 
+// writeEncChain renders the encoded-executable analysis when it fired: every
+// decoded PE/ELF with its encoding, layer depth and offset.
+func (c config) writeEncChain(w io.Writer, e *encchain.Result) {
+	if e.Skipped != "" || !encChainBreached(e, c.encChainThreshold) {
+		return
+	}
+	path := c.boundedMessage(e.FilePath)
+	threshold := encChainThresholdFor(e, c.encChainThreshold)
+	fmt.Fprintf(w, " [!] DETECTED (Encoded executable) â %s\n", path)
+	fmt.Fprintf(w, "     %-10s: %s\n", "Verdict", "SUSPICIOUS")
+	fmt.Fprintf(w, "     %-10s: %d / %d threshold\n", "Score", e.Score, threshold)
+	fmt.Fprintln(w)
+	for _, f := range e.Findings {
+		tags := ""
+		if f.Technique != "" || f.Novel != "" {
+			tags = "  (" + strings.TrimSpace(strings.Join([]string{c.boundedMessage(f.Technique), c.boundedMessage(f.Novel)}, " ")) + ")"
+		}
+		fmt.Fprintf(w, "     [%s] %d%s\n", c.boundedMessage(f.Class), f.Score, tags)
+		fmt.Fprintf(w, "       %s (%s, layer %d, at offset %d)\n", c.boundedMessage(f.Detail), c.boundedMessage(f.Encoding), f.Depth, f.Offset)
+	}
+	fmt.Fprintln(w)
+}
+
 // writeFusion renders the lattice's verdict when it adds something to what
 // the detectors already printed: a detection reached only by corroboration,
 // or a verdict several sources agreed on. A fused verdict that restates one
@@ -391,6 +418,7 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	heur := len(in.HeuristicBreach(c.heuristicThreshold))
 	stat := len(in.StaticBreach(c.staticThreshold))
 	steg := len(in.StegoBreach(c.stegoThreshold))
+	enc := len(in.EncChainBreach(c.encChainThreshold))
 	fused := len(in.FusionCorroborated())
 
 	fmt.Fprintln(w)
@@ -402,12 +430,13 @@ func (c config) writeSummary(w io.Writer, in Input) {
 	fmt.Fprintf(w, " Heuristic detections  : %d\n", heur)
 	fmt.Fprintf(w, " Static detections     : %d\n", stat)
 	fmt.Fprintf(w, " Stego detections      : %d\n", steg)
+	fmt.Fprintf(w, " Encoded-exe detections: %d\n", enc)
 	fmt.Fprintf(w, " Fused-only detections : %d\n", fused)
 	fmt.Fprintf(w, " Errors                : %d\n", in.ErrorCount())
 	fmt.Fprintf(w, " Exit code             : %d (%s)\n", code, reason)
 	fmt.Fprintln(w, strings.Repeat("-", 60))
 
-	if hash+yara+heur+stat+steg+fused > 0 {
+	if hash+yara+heur+stat+steg+enc+fused > 0 {
 		fmt.Fprintln(w, "\n *** THREATS DETECTED — DO NOT EXECUTE FLAGGED FILES ***")
 	} else if in.RunError != nil {
 		fmt.Fprintln(w, "\n Scan did not run.")
