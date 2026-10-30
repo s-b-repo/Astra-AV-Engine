@@ -18,6 +18,7 @@ import (
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/lnk"
+	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -120,12 +121,14 @@ type scanFlags struct {
 	noStego, noFusion bool
 	noEncChain        bool
 	noLNK             bool
+	noOLE             bool
 	fuzzyDB           string
 	heurThreshold     int
 	staticThreshold   int
 	stegoThreshold    int
 	encChainThreshold int
 	lnkThreshold      int
+	oleThreshold      int
 	format, output    string
 	pretty            bool
 	failOn            string
@@ -158,6 +161,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&f.encChainThreshold, "encchain-threshold", encchain.Threshold, "score at which an encoded-executable match is reported suspicious")
 	fs.BoolVar(&f.noLNK, "no-lnk", false, "disable the Windows Shell Link (.lnk) pass")
 	fs.IntVar(&f.lnkThreshold, "lnk-threshold", lnk.Threshold, "score at which a Shell Link (.lnk) match is reported suspicious")
+	fs.BoolVar(&f.noOLE, "no-ole", false, "disable the OLE compound-file (VBA macro) pass")
+	fs.IntVar(&f.oleThreshold, "ole-threshold", ole.Threshold, "score at which an OLE macro match is reported suspicious")
 	fs.BoolVar(&f.noFusion, "no-fusion", false, "disable the fusion lattice (corroboration of sub-threshold detectors)")
 	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
 	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
@@ -212,6 +217,10 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "[ERROR] --lnk-threshold must be at least 1")
 		return report.ExitUsage
 	}
+	if f.oleThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --ole-threshold must be at least 1")
+		return report.ExitUsage
+	}
 
 	opts := []report.Option{
 		report.WithToolName(toolName),
@@ -223,6 +232,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		report.WithStegoThreshold(f.stegoThreshold),
 		report.WithEncChainThreshold(f.encChainThreshold),
 		report.WithLNKThreshold(f.lnkThreshold),
+		report.WithOLEThreshold(f.oleThreshold),
 		report.WithIndent(f.pretty),
 	}
 	if f.dir != "" && len(targets) == 1 {
@@ -370,6 +380,11 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	} else {
 		status("[*] Shell Link (.lnk) pass enabled (threshold %d)", f.lnkThreshold)
 	}
+	if f.noOLE {
+		status("[*] OLE macro pass disabled")
+	} else {
+		status("[*] OLE macro pass enabled (threshold %d)", f.oleThreshold)
+	}
 	if f.noFusion {
 		status("[*] Fusion disabled")
 	}
@@ -389,6 +404,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		EncChainThreshold:  f.encChainThreshold,
 		LNK:                !f.noLNK,
 		LNKThreshold:       f.lnkThreshold,
+		OLE:                !f.noOLE,
+		OLEThreshold:       f.oleThreshold,
 		NoFusion:           f.noFusion,
 		MaxInMemory:        f.maxInMemoryMiB << 20,
 		Jobs:               f.jobs,

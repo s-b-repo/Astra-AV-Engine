@@ -13,6 +13,7 @@ joins their outcomes. Each detector answers a different question:
 | [Invisible codepoints](#invisible-codepoints-stego) | does this text or code carry hidden codepoints? | SUSPICIOUS |
 | [Encoded executable](#encoded-executable) | is an executable hidden behind text encoding? | SUSPICIOUS |
 | [Shell Link (.lnk)](#shell-link-lnk) | is this Windows shortcut a weaponised launcher? | SUSPICIOUS |
+| [OLE macro](#ole-macro) | does this Office document carry a malicious VBA macro? | SUSPICIOUS |
 | [Fusion](#fusion) | do several of the above agree, even below their own thresholds? | never lowers; raises CLEAN to SUSPICIOUS |
 
 SUSPICIOUS is evidence with a score and an explanation, never a confirmed
@@ -335,6 +336,35 @@ encoded flag, or an interpreter plus a hidden window.
 It is SUSPICIOUS-tier, never MALICIOUS: the structure is strong evidence of a
 launcher, not proof of malice (legitimate installers ship shortcuts too).
 `--no-lnk` disables it and `--lnk-threshold` tunes the score.
+
+## OLE macro
+
+`scanner/ole` reads the OLE Compound File Binary ([MS-CFB]) container behind
+legacy-Office documents (`.doc`/`.xls`/`.ppt`) and asks whether it carries a
+malicious VBA macro — the phishing-lure dropper that auto-runs on open and
+shells out to an interpreter or pulls a stage-two payload. It parses the CFB
+(header, DIFAT, FAT, directory, MiniFAT/mini-stream) through bounds-checked
+accessors that cap every declared size, detect FAT/MiniFAT chain cycles with a
+visited-set, and bound the total bytes resolved, so a malformed or adversarial
+document yields a partial result with a warning rather than a panic, a hang or
+unbounded memory. It then locates the VBA module streams, decompresses their
+[MS-OVBA] `CompressedContainer` source (a bounded, cycle-free implementation of
+the container/chunk/token algorithm), and reads the macro source.
+
+The findings are ATT&CK-mapped signals: a VBA project at all (T1059.005, low
+weight — legit docs have macros), an **auto-executing entry point**
+(`AutoOpen`, `Document_Open`, `Workbook_Open`, … → T1137), a shell or
+interpreter call (`Shell`, `powershell`, `cmd` → T1059.001/.003/.005), a
+downloader (`URLDownloadToFile`, `MSXML2.XMLHTTP` → T1105), late-binding
+(`CreateObject`/`GetObject`), heavy character-code obfuscation (T1027), and
+embedded-object / Equation-Editor lures (`\x01Ole10Native`, `Equation Native` →
+T1204.002 / T1203). The default threshold (8) is chosen so a plain
+macro-bearing document stays below it while an auto-exec entry point plus a
+suspicious call crosses it.
+
+It is SUSPICIOUS-tier, never MALICIOUS: a macro is strong evidence, not proof
+(business documents legitimately automate). `--no-ole` disables it and
+`--ole-threshold` tunes the score.
 
 ## Fusion
 

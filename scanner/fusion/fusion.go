@@ -417,4 +417,5 @@ const (
 	SourceStego      = "stego"
 	SourceEncChain   = "encchain"
 	SourceLNK        = "lnk"
+	SourceOLE        = "ole"
 )
