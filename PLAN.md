@@ -39,7 +39,7 @@ A roll-up of the OSS engine as it stands; the phase sections below hold the
 detail and the open items. Everything here is measured and gated in CI
 (`make ci`: vet, race tests, rule lint, coverage gate, eval gate).
 
-**Detectors (nine, single-pass, plus a fusion lattice):**
+**Detectors (ten, single-pass, plus a fusion lattice):**
 - Hash signatures, YARA (in-process libyara), string/API heuristics.
 - Static structure — own bounds-checked PE and ELF parsers, entropy, packer,
   overlay, Authenticode, TLSH/ssdeep/imphash similarity.
@@ -55,6 +55,9 @@ detail and the open items. Everything here is measured and gated in CI
 - PDF document pass (`scanner/pdf`) — bounded lexical scan with `#xx` name
   de-obfuscation reading malicious-PDF tradecraft (auto-run actions, embedded
   JavaScript, Launch, embedded files, JS exploit primitives).
+- ISO container pass (`scanner/iso`) — bounded, cycle-safe ISO 9660 (+Joliet)
+  directory enumeration reading the mark-of-the-web-bypass smuggling shape
+  (a .lnk paired with an executable payload, hidden payloads, autorun.inf).
 - Fusion lattice — corroboration of sub-threshold detectors; never lowers a
   verdict.
 
@@ -76,10 +79,16 @@ detail and the open items. Everything here is measured and gated in CI
 - Detection-robustness harnesses for all four content detectors; they found and
   closed two case-sensitivity gaps (wannacry, generic-ransomware extensions).
 
-**ATT&CK coverage of shipped content:** T1140 and T1027.013 covered by the
-encoded-executable detector; **T1564.001 is the sole remaining declared content
-gap** (sensor-owned — a file scanner could only anchor on an attacker-controlled
-name, which the analytic-design rule forbids).
+**ATT&CK coverage of shipped content:** the engine now covers 46 techniques
+with content, and the expectation (`baselines/attack-coverage.txt`) carries no
+hard `gap` rows left — the document/archive detectors closed the last ones. The
+honest incompleteness is now carried by **`partial`** rows: T1057 and T1082
+(discovery via string/import patterns only) and T1564.001 (the ISO-container
+hidden-payload facet ships; host-filesystem hidden executables remain a Phase 11
+sensor row). Limitations are still published — as `partial` states and the
+"content with no ATT&CK technique" list — rather than as `gap` rows. A
+follow-up worth taking: widen the expectation to track genuinely-uncovered
+techniques as new published gaps, so the counterfactual stays visible.
 
 **Not yet shipped (see phases):** intelligence feeds
 and the EU-framework bindings (Phase 4), the ML ladder (Phase 5), the full
@@ -625,8 +634,16 @@ is part of the deliverable.
   without it — measure-or-don't-ship). **PDF shipped 2026-10-30** as `scanner/pdf`
   (bounded lexical scan with `#xx` name de-obfuscation + malicious-document detection,
   wired the same way; `--no-pdf` / `--pdf-threshold`; adds coverage of T1059.007 and
-  T1204.001 and joins T1027 / T1059 / T1105 / T1204.002). CHM and ISO remain. Each lands
-  with its own fuzz harness (see the parser-fuzzing gate).
+  T1204.001 and joins T1027 / T1059 / T1105 / T1204.002). **ISO shipped 2026-10-30** as
+  `scanner/iso` (bounded, cycle-safe ISO 9660 + Joliet directory enumeration reading the
+  mark-of-the-web-bypass smuggling shape; `--no-iso` / `--iso-threshold`; adds coverage of
+  T1091, takes T1564.001 to *partial* — the ISO-container hidden-payload facet; the
+  host-filesystem facet is still the Phase 11 sensor row — and joins T1204.002). **CHM
+  deferred**: meaningful CHM detection needs LZX decompression (the malicious `<OBJECT>`
+  ShortCut command lives in the LZX-compressed HTML topics); a structural-only CHM pass
+  would sit below the FP bar, so per measure-or-don't-ship it waits for the LZX work
+  rather than shipping weak. Each shipped parser lands with its own fuzz harness (see the
+  parser-fuzzing gate).
 - [ ] Quarantine + canary primitives in the OSS engine: quarantine DB with
   integrity-checked restore, decoy/canary files as cheap ground truth for the behavior
   engine. The console ships full response by design; OSS analysts still need an honest
@@ -644,11 +661,11 @@ is part of the deliverable.
   Progress: **every parser shipped so far is fuzzed** — `FuzzParsePE`,
   `FuzzParseELF`, `FuzzAnalyze` (static), `FuzzScan` (stego),
   `FuzzScanHeuristicsData`, `FuzzAnalyze` (encchain), `FuzzAnalyze` (lnk),
-  `FuzzAnalyze` (ole, the [MS-CFB] + [MS-OVBA] parsers) and `FuzzAnalyze` (pdf),
-  all in `make fuzz` with seed corpora that also run as fast unit tests under
-  `make test`. The item stays open for the parsers not yet written (UEFI →
-  Phase 8, CHM/ISO → Phase 9 document & archive vectors); each lands with its
-  fuzz harness in the same change.
+  `FuzzAnalyze` (ole, the [MS-CFB] + [MS-OVBA] parsers), `FuzzAnalyze` (pdf) and
+  `FuzzAnalyze` (iso, the ISO 9660 enumerator), all in `make fuzz` with seed
+  corpora that also run as fast unit tests under `make test`. The item stays
+  open for the parsers not yet written (UEFI → Phase 8, CHM → Phase 9, pending
+  its LZX decompressor); each lands with its fuzz harness in the same change.
 - [ ] macOS decision, explicitly: Mach-O scanner plus the LOOBins content already
   ingested. Scope is set at the end of Phase 2 — OSS engine only, or console sensor
   surface. The one thing not accepted is drifting half-committed for two releases.

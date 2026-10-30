@@ -142,6 +142,7 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 	lnkHits := len(in.LNKBreach(c.lnkThreshold))
 	oleHits := len(in.OLEBreach(c.oleThreshold))
 	pdfHits := len(in.PDFBreach(c.pdfThreshold))
+	isoHits := len(in.ISOBreach(c.isoThreshold))
 	fused := len(in.FusionCorroborated())
 
 	// suspicious is the shared tail of the heuristic and clean levels: the
@@ -163,6 +164,8 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the OLE macro threshold %d", ExitThreat, oleHits, c.oleThreshold)
 		case pdfHits > 0:
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the PDF document threshold %d", ExitThreat, pdfHits, c.pdfThreshold)
+		case isoHits > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the ISO container threshold %d", ExitThreat, isoHits, c.isoThreshold)
 		case fused > 0:
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) were corroborated suspicious by the fusion of sub-threshold detectors", ExitThreat, fused)
 		}
@@ -171,7 +174,7 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 
 	switch c.failOn {
 	case FailOnNone:
-		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es), %d static breach(es), %d stego breach(es), %d encoded-executable breach(es), %d shell-link breach(es), %d ole-macro breach(es), %d pdf breach(es), %d fused)", ExitOK, malicious, breaches, static, stego, encchain, lnkHits, oleHits, pdfHits, fused)
+		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es), %d static breach(es), %d stego breach(es), %d encoded-executable breach(es), %d shell-link breach(es), %d ole-macro breach(es), %d pdf breach(es), %d iso breach(es), %d fused)", ExitOK, malicious, breaches, static, stego, encchain, lnkHits, oleHits, pdfHits, isoHits, fused)
 
 	case FailOnMalicious:
 		if malicious > 0 {

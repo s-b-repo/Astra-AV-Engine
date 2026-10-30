@@ -17,6 +17,7 @@ import (
 	"github.com/cau-edr/cau/internal/report"
 	"github.com/cau-edr/cau/scanner"
 	"github.com/cau-edr/cau/scanner/encchain"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -124,6 +125,7 @@ type scanFlags struct {
 	noLNK             bool
 	noOLE             bool
 	noPDF             bool
+	noISO             bool
 	fuzzyDB           string
 	heurThreshold     int
 	staticThreshold   int
@@ -132,6 +134,7 @@ type scanFlags struct {
 	lnkThreshold      int
 	oleThreshold      int
 	pdfThreshold      int
+	isoThreshold      int
 	format, output    string
 	pretty            bool
 	failOn            string
@@ -168,6 +171,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&f.oleThreshold, "ole-threshold", ole.Threshold, "score at which an OLE macro match is reported suspicious")
 	fs.BoolVar(&f.noPDF, "no-pdf", false, "disable the PDF malicious-document pass")
 	fs.IntVar(&f.pdfThreshold, "pdf-threshold", pdf.Threshold, "score at which a PDF document match is reported suspicious")
+	fs.BoolVar(&f.noISO, "no-iso", false, "disable the ISO 9660 malicious-container pass")
+	fs.IntVar(&f.isoThreshold, "iso-threshold", iso.Threshold, "score at which an ISO container match is reported suspicious")
 	fs.BoolVar(&f.noFusion, "no-fusion", false, "disable the fusion lattice (corroboration of sub-threshold detectors)")
 	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
 	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
@@ -230,6 +235,10 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "[ERROR] --pdf-threshold must be at least 1")
 		return report.ExitUsage
 	}
+	if f.isoThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --iso-threshold must be at least 1")
+		return report.ExitUsage
+	}
 
 	opts := []report.Option{
 		report.WithToolName(toolName),
@@ -243,6 +252,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		report.WithLNKThreshold(f.lnkThreshold),
 		report.WithOLEThreshold(f.oleThreshold),
 		report.WithPDFThreshold(f.pdfThreshold),
+		report.WithISOThreshold(f.isoThreshold),
 		report.WithIndent(f.pretty),
 	}
 	if f.dir != "" && len(targets) == 1 {
@@ -400,6 +410,11 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	} else {
 		status("[*] PDF document pass enabled (threshold %d)", f.pdfThreshold)
 	}
+	if f.noISO {
+		status("[*] ISO container pass disabled")
+	} else {
+		status("[*] ISO container pass enabled (threshold %d)", f.isoThreshold)
+	}
 	if f.noFusion {
 		status("[*] Fusion disabled")
 	}
@@ -423,6 +438,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		OLEThreshold:       f.oleThreshold,
 		PDF:                !f.noPDF,
 		PDFThreshold:       f.pdfThreshold,
+		ISO:                !f.noISO,
+		ISOThreshold:       f.isoThreshold,
 		NoFusion:           f.noFusion,
 		MaxInMemory:        f.maxInMemoryMiB << 20,
 		Jobs:               f.jobs,

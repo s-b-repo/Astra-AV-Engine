@@ -75,6 +75,7 @@ fuzz: build
 	go test ./scanner/lnk/    -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
 	go test ./scanner/ole/    -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
 	go test ./scanner/pdf/    -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
+	go test ./scanner/iso/    -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
 	go test ./scanner/        -run '^$$' -fuzz '^FuzzScanHeuristicsData$$' -fuzztime $(FUZZTIME)
 
 # ── Evaluation harness ──────────────────────────────────────────────────────

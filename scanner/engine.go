@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cau-edr/cau/scanner/encchain"
+	"github.com/cau-edr/cau/scanner/iso"
 	"github.com/cau-edr/cau/scanner/lnk"
 	"github.com/cau-edr/cau/scanner/ole"
 	"github.com/cau-edr/cau/scanner/pdf"
@@ -91,6 +92,12 @@ type Engine struct {
 	// PDFThreshold overrides pdf.Threshold (0 = package default).
 	PDFThreshold int
 
+	// ISO enables the ISO 9660 malicious-container detector. Its result rides
+	// on ScanResult.ISO.
+	ISO bool
+	// ISOThreshold overrides iso.Threshold (0 = package default).
+	ISOThreshold int
+
 	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
 	// it costs nothing: it is a view over results already computed.
 	NoFusion bool
@@ -160,6 +167,13 @@ func (e *Engine) pdfThreshold() int {
 		return e.PDFThreshold
 	}
 	return pdf.Threshold
+}
+
+func (e *Engine) isoThreshold() int {
+	if e.ISOThreshold > 0 {
+		return e.ISOThreshold
+	}
+	return iso.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -367,6 +381,22 @@ func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 				FilePath:  path,
 				Size:      int(fi.Size()),
 				Threshold: e.pdfThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── ISO 9660 malicious-container ───────────────────
+	if e.ISO {
+		if data != nil {
+			res.ISO = iso.Analyze(data, iso.Options{Threshold: e.isoThreshold()})
+			res.ISO.FilePath = path
+		} else {
+			res.ISO = &iso.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.isoThreshold(),
 				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
 					fi.Size(), e.maxInMemory()),
 			}
