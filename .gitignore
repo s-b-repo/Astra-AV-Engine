@@ -8,7 +8,7 @@
 *.test
 *.out
 *.prof
-coverage.*
+/coverage.*
 
 # Editors / OS
 .idea/
