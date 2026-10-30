@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -63,6 +64,12 @@ type Engine struct {
 	// StegoThreshold overrides stego.Threshold (0 = package default).
 	StegoThreshold int
 
+	// EncChain enables the encoded-executable detector (base64/hex layers
+	// decoding to a PE/ELF header). Its result rides on ScanResult.EncChain.
+	EncChain bool
+	// EncChainThreshold overrides encchain.Threshold (0 = package default).
+	EncChainThreshold int
+
 	// NoFusion leaves ScanResult.Fusion nil. Fusion is on by default because
 	// it costs nothing: it is a view over results already computed.
 	NoFusion bool
@@ -104,6 +111,13 @@ func (e *Engine) stegoThreshold() int {
 		return e.StegoThreshold
 	}
 	return stego.Threshold
+}
+
+func (e *Engine) encChainThreshold() int {
+	if e.EncChainThreshold > 0 {
+		return e.EncChainThreshold
+	}
+	return encchain.Threshold
 }
 
 // ScanFile runs every configured detector over one file. The heuristic result
@@ -247,6 +261,22 @@ func (e *Engine) ScanFile(path string) (res ScanResult, h *HeuristicResult) {
 				FilePath:  path,
 				Size:      int(fi.Size()),
 				Threshold: e.stegoThreshold(),
+				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
+					fi.Size(), e.maxInMemory()),
+			}
+		}
+	}
+
+	// ── encoded-executable chain ───────────────────────
+	if e.EncChain {
+		if data != nil {
+			res.EncChain = encchain.Analyze(data, encchain.Options{Threshold: e.encChainThreshold()})
+			res.EncChain.FilePath = path
+		} else {
+			res.EncChain = &encchain.Result{
+				FilePath:  path,
+				Size:      int(fi.Size()),
+				Threshold: e.encChainThreshold(),
 				Skipped: fmt.Sprintf("file is %d bytes, over the %d byte in-memory limit",
 					fi.Size(), e.maxInMemory()),
 			}

@@ -1,12 +1,13 @@
 {
   "schema_version": "1",
   "run": {
-    "tool": "CAU EDR 421c3f9-dirty",
-    "generated_at": "2026-10-25T10:46:34.411299302Z",
+    "tool": "CAU EDR 5ced43e-dirty",
+    "generated_at": "2026-10-29T23:40:31.418955138Z",
     "corpus": "corpus/smoke/manifest.json",
     "corpus_name": "smoke",
     "corpus_root": "/home/kali/Documents/astrav2/corpus/smoke",
     "detectors": [
+      "encchain",
       "fusion",
       "hash",
       "heuristic",
@@ -28,7 +29,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 439470
+      "duration_ns": 357202
     },
     {
       "id": "benign-bom_script",
@@ -40,7 +41,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 158804
+      "duration_ns": 143865
     },
     {
       "id": "benign-config.ini",
@@ -52,7 +53,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 195044
+      "duration_ns": 749405
     },
     {
       "id": "benign-emoji_notes",
@@ -64,7 +65,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 545379
+      "duration_ns": 1846731
     },
     {
       "id": "benign-empty.bin",
@@ -75,7 +76,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 150214
+      "duration_ns": 1503892
     },
     {
       "id": "benign-fetch.sh",
@@ -87,7 +88,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 385442
+      "duration_ns": 2795303
     },
     {
       "id": "benign-hello_elf",
@@ -99,7 +100,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 1287135
+      "duration_ns": 6939770
     },
     {
       "id": "benign-hindi_notes",
@@ -111,7 +112,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 144978
+      "duration_ns": 297356
     },
     {
       "id": "benign-persian_readme",
@@ -123,7 +124,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 491929
+      "duration_ns": 2109271
     },
     {
       "id": "benign-utf16_notes",
@@ -135,7 +136,7 @@
       "detected": false,
       "verdict": "CLEAN",
       "scored": true,
-      "duration_ns": 135417
+      "duration_ns": 667164
     },
     {
       "id": "mal-elf_dropper_profile",
@@ -177,7 +178,34 @@
         "static"
       ],
       "scored": true,
-      "duration_ns": 1338638
+      "duration_ns": 5503843
+    },
+    {
+      "id": "mal-encoded_elf",
+      "path": "malicious/encoded_elf.txt",
+      "full_path": "/home/kali/Documents/astrav2/corpus/smoke/malicious/encoded_elf.txt",
+      "expected": "encoded_exe",
+      "family": "encoded_exe",
+      "size": 729,
+      "detected": true,
+      "verdict": "MALICIOUS",
+      "signals": [
+        {
+          "detector": "encchain",
+          "rule": "encchain/score",
+          "detail": "score 8/threshold 8; 2 candidate(s), 6 layer(s) peeled"
+        },
+        {
+          "detector": "encchain",
+          "rule": "encchain/elf",
+          "detail": "decodes to an ELF image"
+        }
+      ],
+      "detectors": [
+        "encchain"
+      ],
+      "scored": true,
+      "duration_ns": 1031970
     },
     {
       "id": "mal-hash_only",
@@ -200,7 +228,7 @@
         "hash"
       ],
       "scored": true,
-      "duration_ns": 161215
+      "duration_ns": 1274083
     },
     {
       "id": "mal-lokibot_strings",
@@ -223,7 +251,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 224869
+      "duration_ns": 3449637
     },
     {
       "id": "mal-mimikatz_strings",
@@ -257,7 +285,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 194964
+      "duration_ns": 1630529
     },
     {
       "id": "mal-ransom_extensions",
@@ -280,7 +308,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 246752
+      "duration_ns": 1053525
     },
     {
       "id": "mal-wannacry_strings",
@@ -303,7 +331,7 @@
         "yara"
       ],
       "scored": true,
-      "duration_ns": 403742
+      "duration_ns": 3414728
     },
     {
       "id": "mal-zero_width_prose",
@@ -335,11 +363,11 @@
         "stego"
       ],
       "scored": true,
-      "duration_ns": 224108
+      "duration_ns": 1824738
     }
   ],
   "totals": {
-    "tp": 7,
+    "tp": 8,
     "fp": 0,
     "tn": 10,
     "fn": 0
@@ -354,12 +382,31 @@
   },
   "by_detector": [
     {
+      "detector": "encchain",
+      "counts": {
+        "tp": 1,
+        "fp": 0,
+        "tn": 10,
+        "fn": 7
+      },
+      "metrics": {
+        "precision": 1,
+        "recall": 0.125,
+        "f1": 0.2222222222222222,
+        "specificity": 1,
+        "fpr": 0,
+        "accuracy": 0.6111111111111112
+      },
+      "fires": 1,
+      "exclusive_hits": 1
+    },
+    {
       "detector": "fusion",
       "counts": {
         "tp": 0,
         "fp": 0,
         "tn": 10,
-        "fn": 7
+        "fn": 8
       },
       "metrics": {
         "precision": null,
@@ -367,7 +414,7 @@
         "f1": null,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.5882352941176471
+        "accuracy": 0.5555555555555556
       },
       "fires": 0,
       "exclusive_hits": 0
@@ -378,15 +425,15 @@
         "tp": 1,
         "fp": 0,
         "tn": 10,
-        "fn": 6
+        "fn": 7
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.14285714285714285,
-        "f1": 0.25,
+        "recall": 0.125,
+        "f1": 0.2222222222222222,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.6470588235294118
+        "accuracy": 0.6111111111111112
       },
       "fires": 1,
       "exclusive_hits": 1
@@ -397,15 +444,15 @@
         "tp": 1,
         "fp": 0,
         "tn": 10,
-        "fn": 6
+        "fn": 7
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.14285714285714285,
-        "f1": 0.25,
+        "recall": 0.125,
+        "f1": 0.2222222222222222,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.6470588235294118
+        "accuracy": 0.6111111111111112
       },
       "fires": 1,
       "exclusive_hits": 0
@@ -416,15 +463,15 @@
         "tp": 1,
         "fp": 0,
         "tn": 10,
-        "fn": 6
+        "fn": 7
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.14285714285714285,
-        "f1": 0.25,
+        "recall": 0.125,
+        "f1": 0.2222222222222222,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.6470588235294118
+        "accuracy": 0.6111111111111112
       },
       "fires": 1,
       "exclusive_hits": 1
@@ -435,15 +482,15 @@
         "tp": 1,
         "fp": 0,
         "tn": 10,
-        "fn": 6
+        "fn": 7
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.14285714285714285,
-        "f1": 0.25,
+        "recall": 0.125,
+        "f1": 0.2222222222222222,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.6470588235294118
+        "accuracy": 0.6111111111111112
       },
       "fires": 1,
       "exclusive_hits": 1
@@ -454,15 +501,15 @@
         "tp": 4,
         "fp": 0,
         "tn": 10,
-        "fn": 3
+        "fn": 4
       },
       "metrics": {
         "precision": 1,
-        "recall": 0.5714285714285714,
-        "f1": 0.7272727272727273,
+        "recall": 0.5,
+        "f1": 0.6666666666666666,
         "specificity": 1,
         "fpr": 0,
-        "accuracy": 0.8235294117647058
+        "accuracy": 0.7777777777777778
       },
       "fires": 4,
       "exclusive_hits": 3
@@ -471,6 +518,14 @@
   "by_family": [
     {
       "family": "elf_dropper_profile",
+      "samples": 1,
+      "detected": 1,
+      "missed": 0,
+      "recall": 1,
+      "false_positives": 0
+    },
+    {
+      "family": "encoded_exe",
       "samples": 1,
       "detected": 1,
       "missed": 0,
@@ -534,6 +589,24 @@
       ],
       "families": [
         "smoke_hash"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "encchain/elf",
+      "detectors": [
+        "encchain"
+      ],
+      "fires": 1,
+      "true_positives": 1,
+      "false_positives": 0
+    },
+    {
+      "rule": "encchain/score",
+      "detectors": [
+        "encchain"
       ],
       "fires": 1,
       "true_positives": 1,
@@ -683,39 +756,39 @@
   "errors": [],
   "skipped": [],
   "perf": {
-    "samples": 17,
-    "total_duration_ns": 6728100,
-    "mean_duration_ns": 395770,
-    "p50_ns": 224869,
-    "p95_ns": 1338638,
-    "max_duration_ns": 1338638,
-    "bytes_scanned": 16277,
-    "throughput_bytes_per_s": 2419256.5508836075,
+    "samples": 18,
+    "total_duration_ns": 36593012,
+    "mean_duration_ns": 2032945,
+    "p50_ns": 1503892,
+    "p95_ns": 6939770,
+    "max_duration_ns": 6939770,
+    "bytes_scanned": 17006,
+    "throughput_bytes_per_s": 464733.5398354199,
     "slowest": [
-      {
-        "key": "mal-elf_dropper_profile",
-        "path": "malicious/elf_dropper_profile.bin",
-        "duration_ns": 1338638
-      },
       {
         "key": "benign-hello_elf",
         "path": "benign/hello_elf.bin",
-        "duration_ns": 1287135
+        "duration_ns": 6939770
       },
       {
-        "key": "benign-emoji_notes",
-        "path": "benign/emoji_notes.md",
-        "duration_ns": 545379
+        "key": "mal-elf_dropper_profile",
+        "path": "malicious/elf_dropper_profile.bin",
+        "duration_ns": 5503843
       },
       {
-        "key": "benign-persian_readme",
-        "path": "benign/persian_readme.md",
-        "duration_ns": 491929
+        "key": "mal-lokibot_strings",
+        "path": "malicious/lokibot_strings.bin",
+        "duration_ns": 3449637
       },
       {
-        "key": "benign-README.txt",
-        "path": "benign/README.txt",
-        "duration_ns": 439470
+        "key": "mal-wannacry_strings",
+        "path": "malicious/wannacry_strings.bin",
+        "duration_ns": 3414728
+      },
+      {
+        "key": "benign-fetch.sh",
+        "path": "benign/fetch.sh",
+        "duration_ns": 2795303
       }
     ]
   }

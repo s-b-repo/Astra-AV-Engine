@@ -35,7 +35,7 @@ func loadEngine(t *testing.T) ([]eval.Detector, *eval.Manifest) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ys.Close() })
-	return append(Engine(db, ys, 0), StaticDetector(0, nil), StegoDetector(0)), m
+	return append(Engine(db, ys, 0), StaticDetector(0, nil), StegoDetector(0), EncChainDetector(0)), m
 }
 
 func TestEngineOnSmokeCorpus(t *testing.T) {
@@ -58,7 +58,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 	if len(rep.Errors) != 0 {
 		t.Errorf("errors: %+v", rep.Errors)
 	}
-	if rep.Totals != (eval.Counts{TP: 7, TN: 10}) {
+	if rep.Totals != (eval.Counts{TP: 8, TN: 10}) {
 		t.Errorf("totals = %s", rep.Totals)
 	}
 
@@ -70,7 +70,7 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"wannacry_ransomware", "mimikatz_strings", "lokibot_stealer", "generic_ransomware_extensions", "Smoke_Hash Synthetic Sample", "stego/zero-width",
-		"static/segment.rwx", "static/dynamic.interp-unusual", "static/imports.loader-only"} {
+		"static/segment.rwx", "static/dynamic.interp-unusual", "static/imports.loader-only", "encchain/elf"} {
 		if !fired[want] {
 			t.Errorf("rule %q did not fire; fired: %v", want, fired)
 		}
@@ -95,10 +95,16 @@ func TestEngineOnSmokeCorpus(t *testing.T) {
 			if d.Counts.TP != 1 || d.Exclusive != 1 || d.Counts.FP != 0 {
 				t.Errorf("static detector: %+v", d)
 			}
+		case eval.DetectorEncChain:
+			// The base64-encoded ELF is the encoded-executable pass's own
+			// exclusive true positive.
+			if d.Counts.TP != 1 || d.Exclusive != 1 || d.Counts.FP != 0 {
+				t.Errorf("encchain detector: %+v", d)
+			}
 		}
 	}
 	// Per-family breakdown is populated from the manifest families.
-	if len(rep.ByFamily) != 7 {
+	if len(rep.ByFamily) != 8 {
 		t.Errorf("families = %+v", rep.ByFamily)
 	}
 }

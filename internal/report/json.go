@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/fusion"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
@@ -27,7 +28,11 @@ import (
 // 1.3.0 added "is_elf" on the heuristic and static objects, the optional
 // static "elf" object (ELF anatomy) and the optional static "import_hash"
 // (additive: minor bump).
-const JSONSchemaVersion = "1.3.0"
+//
+// 1.4.0 added the optional per-file "encchain" object (encoded-executable
+// analysis) and the summary fields "encchain_detections" /
+// "encchain_threshold" (additive: minor bump).
+const JSONSchemaVersion = "1.4.0"
 
 // Overall and per-file verdict strings carried by the JSON document. They are
 // lower-case on purpose: they are enum values for machines, not banners.
@@ -64,6 +69,7 @@ type Summary struct {
 	HeuristicDetections int `json:"heuristic_detections"`
 	StaticDetections    int `json:"static_detections"`
 	StegoDetections     int `json:"stego_detections"`
+	EncChainDetections  int `json:"encchain_detections"`
 	// FusionDetections counts files the fusion lattice reports as suspicious
 	// although no single detector crossed its own threshold.
 	FusionDetections   int    `json:"fusion_detections"`
@@ -72,6 +78,7 @@ type Summary struct {
 	HeuristicThreshold int    `json:"heuristic_threshold"`
 	StaticThreshold    int    `json:"static_threshold"`
 	StegoThreshold     int    `json:"stego_threshold"`
+	EncChainThreshold  int    `json:"encchain_threshold"`
 	Verdict            string `json:"verdict"`
 	FailOn             string `json:"fail_on"`
 	ExitCode           int    `json:"exit_code"`
@@ -89,6 +96,7 @@ type File struct {
 	Heuristics *Heuristics `json:"heuristics,omitempty"`
 	Static     *Static     `json:"static,omitempty"`
 	Stego      *Stego      `json:"stego,omitempty"`
+	EncChain   *EncChain   `json:"encchain,omitempty"`
 	Fusion     *Fusion     `json:"fusion,omitempty"`
 	Warnings   []string    `json:"warnings,omitempty"`
 	Error      string      `json:"error,omitempty"`
@@ -426,6 +434,32 @@ type StegoFinding struct {
 	Novel     string `json:"novel,omitempty"`
 }
 
+// EncChain is the per-file encoded-executable analysis: base64/hex layers
+// that decode to a PE or ELF header.
+type EncChain struct {
+	Score        int               `json:"score"`
+	Threshold    int               `json:"threshold"`
+	Detected     bool              `json:"detected"`
+	Skipped      string            `json:"skipped,omitempty"`
+	Candidates   int               `json:"candidates,omitempty"`
+	LayersPeeled int               `json:"layers_peeled,omitempty"`
+	Budget       bool              `json:"budget_exhausted,omitempty"`
+	Findings     []EncChainFinding `json:"findings,omitempty"`
+}
+
+// EncChainFinding is one decoded executable.
+type EncChainFinding struct {
+	Class     string `json:"class"`
+	Score     int    `json:"score"`
+	Encoding  string `json:"encoding"`
+	Depth     int    `json:"depth"`
+	Offset    int    `json:"offset"`
+	RunBytes  int    `json:"run_bytes"`
+	Technique string `json:"technique,omitempty"`
+	Novel     string `json:"novel,omitempty"`
+	Detail    string `json:"detail"`
+}
+
 // Fusion is the lattice's view over every detector that ran on the file.
 type Fusion struct {
 	Tier       string  `json:"tier"`
@@ -518,12 +552,14 @@ func (c config) buildDocument(in Input) Document {
 			HeuristicDetections: len(in.HeuristicBreach(c.heuristicThreshold)),
 			StaticDetections:    len(in.StaticBreach(c.staticThreshold)),
 			StegoDetections:     len(in.StegoBreach(c.stegoThreshold)),
+			EncChainDetections:  len(in.EncChainBreach(c.encChainThreshold)),
 			FusionDetections:    len(in.FusionCorroborated()),
 			Errors:              in.ErrorCount(),
 			ElapsedMS:           in.Elapsed.Milliseconds(),
 			HeuristicThreshold:  c.heuristicThreshold,
 			StaticThreshold:     c.staticThreshold,
 			StegoThreshold:      c.stegoThreshold,
+			EncChainThreshold:   c.encChainThreshold,
 			Verdict:             c.overallVerdict(in),
 			FailOn:              c.failOn.String(),
 			ExitCode:            code,
@@ -567,7 +603,8 @@ func (c config) overallVerdict(in Input) string {
 	case len(in.Malicious()) > 0:
 		return JSONVerdictMalicious
 	case len(in.HeuristicBreach(c.heuristicThreshold)) > 0, len(in.StaticBreach(c.staticThreshold)) > 0,
-		len(in.StegoBreach(c.stegoThreshold)) > 0, len(in.FusionCorroborated()) > 0:
+		len(in.StegoBreach(c.stegoThreshold)) > 0, len(in.EncChainBreach(c.encChainThreshold)) > 0,
+		len(in.FusionCorroborated()) > 0:
 		return JSONVerdictSuspicious
 	default:
 		return JSONVerdictClean
@@ -634,6 +671,12 @@ func (c config) buildFile(p string, res *scanner.ScanResult, h *scanner.Heuristi
 				f.Verdict = JSONVerdictError
 			}
 			if f.Stego.Detected && f.Verdict == JSONVerdictClean {
+				f.Verdict = JSONVerdictSuspicious
+			}
+		}
+		if res.EncChain != nil {
+			f.EncChain = c.buildEncChain(res.EncChain)
+			if f.EncChain.Detected && f.Verdict == JSONVerdictClean {
 				f.Verdict = JSONVerdictSuspicious
 			}
 		}
@@ -919,6 +962,27 @@ func (c config) buildStego(s *stego.Result) *Stego {
 		out.Findings = append(out.Findings, StegoFinding{
 			Class: c.boundedMessage(f.Class), Score: f.Score, Detail: c.boundedMessage(f.Detail),
 			Technique: c.boundedMessage(f.Technique), Novel: c.boundedMessage(f.Novel),
+		})
+	}
+	return out
+}
+
+func (c config) buildEncChain(e *encchain.Result) *EncChain {
+	out := &EncChain{
+		Score:        e.Score,
+		Threshold:    encChainThresholdFor(e, c.encChainThreshold),
+		Detected:     encChainBreached(e, c.encChainThreshold),
+		Skipped:      c.boundedMessage(e.Skipped),
+		Candidates:   e.Candidates,
+		LayersPeeled: e.LayersPeeled,
+		Budget:       e.Budget,
+	}
+	for _, f := range e.Findings {
+		out.Findings = append(out.Findings, EncChainFinding{
+			Class: c.boundedMessage(f.Class), Score: f.Score, Encoding: c.boundedMessage(f.Encoding),
+			Depth: f.Depth, Offset: f.Offset, RunBytes: f.RunBytes,
+			Technique: c.boundedMessage(f.Technique), Novel: c.boundedMessage(f.Novel),
+			Detail: c.boundedMessage(f.Detail),
 		})
 	}
 	return out

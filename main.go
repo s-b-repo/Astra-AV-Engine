@@ -16,6 +16,7 @@ import (
 
 	"github.com/cau-edr/cau/internal/report"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -116,10 +117,12 @@ type scanFlags struct {
 	noYara, noHeur    bool
 	noStatic, noFuzzy bool
 	noStego, noFusion bool
+	noEncChain        bool
 	fuzzyDB           string
 	heurThreshold     int
 	staticThreshold   int
 	stegoThreshold    int
+	encChainThreshold int
 	format, output    string
 	pretty            bool
 	failOn            string
@@ -148,6 +151,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&f.noFuzzy, "no-fuzzy", false, "skip TLSH/ssdeep computation (faster on large files; disables similarity lookups)")
 	fs.BoolVar(&f.noStego, "no-stego", false, "disable the invisible-codepoint (stego) pass over text and code artifacts")
 	fs.IntVar(&f.stegoThreshold, "stego-threshold", stego.Threshold, "stego score at which a text artifact is reported suspicious (default is presence-based)")
+	fs.BoolVar(&f.noEncChain, "no-encchain", false, "disable the encoded-executable (base64/hex layers decoding to a PE/ELF) pass")
+	fs.IntVar(&f.encChainThreshold, "encchain-threshold", encchain.Threshold, "score at which an encoded-executable match is reported suspicious")
 	fs.BoolVar(&f.noFusion, "no-fusion", false, "disable the fusion lattice (corroboration of sub-threshold detectors)")
 	fs.StringVar(&f.format, "format", "text", "output format: "+strings.Join(report.Formats, ", "))
 	fs.StringVar(&f.output, "output", "", "write the report to this file instead of stdout")
@@ -194,6 +199,10 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "[ERROR] --stego-threshold must be at least 1")
 		return report.ExitUsage
 	}
+	if f.encChainThreshold < 1 {
+		fmt.Fprintln(stderr, "[ERROR] --encchain-threshold must be at least 1")
+		return report.ExitUsage
+	}
 
 	opts := []report.Option{
 		report.WithToolName(toolName),
@@ -203,6 +212,7 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		report.WithHeuristicThreshold(f.heurThreshold),
 		report.WithStaticThreshold(f.staticThreshold),
 		report.WithStegoThreshold(f.stegoThreshold),
+		report.WithEncChainThreshold(f.encChainThreshold),
 		report.WithIndent(f.pretty),
 	}
 	if f.dir != "" && len(targets) == 1 {
@@ -340,6 +350,11 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 	} else {
 		status("[*] Stego pass enabled (threshold %d)", f.stegoThreshold)
 	}
+	if f.noEncChain {
+		status("[*] Encoded-executable pass disabled")
+	} else {
+		status("[*] Encoded-executable pass enabled (threshold %d)", f.encChainThreshold)
+	}
 	if f.noFusion {
 		status("[*] Fusion disabled")
 	}
@@ -355,6 +370,8 @@ func cmdScan(args []string, stdout, stderr io.Writer) int {
 		StaticNoFuzzy:      f.noFuzzy,
 		Stego:              !f.noStego,
 		StegoThreshold:     f.stegoThreshold,
+		EncChain:           !f.noEncChain,
+		EncChainThreshold:  f.encChainThreshold,
 		NoFusion:           f.noFusion,
 		MaxInMemory:        f.maxInMemoryMiB << 20,
 		Jobs:               f.jobs,
@@ -392,7 +409,7 @@ func printBanner(w io.Writer) {
 	fmt.Fprintln(w, strings.Repeat("=", 60))
 	fmt.Fprintf(w, " %s %s\n", toolName, version)
 	fmt.Fprintf(w, " %s\n", toolTagline)
-	fmt.Fprintln(w, " Detection: Hash + YARA + Heuristics + Static Structure + Stego, fused")
+	fmt.Fprintln(w, " Detection: Hash + YARA + Heuristics + Static + Stego + EncChain, fused")
 	fmt.Fprintln(w, strings.Repeat("=", 60))
 	fmt.Fprintln(w)
 }

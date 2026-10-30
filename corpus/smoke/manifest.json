@@ -128,6 +128,14 @@
       "family": "elf_dropper_profile",
       "sha256": "451510bb4df04d001ced58f5635722ee864dd30e9dbfd57632abb83cb025ef2f",
       "notes": "synthetic ELF64 written by scanner/static TestWriteELFFixtures: RWX packed .text, program interpreter under /tmp, dlopen/dlsym-only imports; trips scanner/static segment.rwx + segment.exec-high-entropy + dynamic.interp-unusual + imports.loader-only (a structural profile; the bytes are pseudo-random, nothing in it runs)"
+    },
+    {
+      "id": "mal-encoded_elf",
+      "path": "malicious/encoded_elf.txt",
+      "label": "encoded_exe",
+      "family": "encoded_exe",
+      "sha256": "6adda1ca0cac2f5a2d552a5b0e45eb84ee79cc2dfa711cdae64422cb76e586b1",
+      "notes": "base64-encoded ELF header; trips scanner/encchain (encchain.elf)"
     }
   ]
 }

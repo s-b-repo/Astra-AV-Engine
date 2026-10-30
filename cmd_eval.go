@@ -14,6 +14,7 @@ import (
 	"github.com/cau-edr/cau/internal/eval/scannerbridge"
 	"github.com/cau-edr/cau/internal/report"
 	"github.com/cau-edr/cau/scanner"
+	"github.com/cau-edr/cau/scanner/encchain"
 	"github.com/cau-edr/cau/scanner/static"
 	"github.com/cau-edr/cau/scanner/stego"
 )
@@ -130,6 +131,7 @@ func evalRun(args []string, stdout, stderr io.Writer) int {
 	fuzzyFlag := fs.String("fuzzy-db", "", "fuzzy signature database for the static detector (default: <manifest dir>/fuzzy.txt, else auto-discovered, else none)")
 	noStego := fs.Bool("no-stego", false, "disable the invisible-codepoint (stego) detector")
 	stegoThreshold := fs.Int("stego-threshold", stego.Threshold, "stego detection threshold")
+	encChainThreshold := fs.Int("encchain-threshold", encchain.Threshold, "encoded-executable detection threshold")
 	noFusion := fs.Bool("no-fusion", false, "disable the fusion detector (corroboration of sub-threshold detectors)")
 	jobs := fs.Int("jobs", 0, "samples scanned concurrently (default: number of CPUs)")
 	onError := fs.String("on-error", string(eval.OnErrorExclude), "unscannable samples: exclude, miss (count as FN) or fail")
@@ -240,6 +242,7 @@ func evalRun(args []string, stdout, stderr io.Writer) int {
 	}
 	if !*noStego {
 		detectors = append(detectors, scannerbridge.StegoDetector(*stegoThreshold))
+		detectors = append(detectors, scannerbridge.EncChainDetector(*encChainThreshold))
 	}
 	if !*noFusion {
 		// The fusion detector runs the same engine the CLI runs and reports

@@ -415,4 +415,5 @@ const (
 	SourceStatic     = "static"
 	SourceSimilarity = "similarity"
 	SourceStego      = "stego"
+	SourceEncChain   = "encchain"
 )

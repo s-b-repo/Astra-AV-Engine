@@ -27,6 +27,7 @@ const (
 	DetectorHeuristic = "heuristic"
 	DetectorStatic    = "static"
 	DetectorStego     = "stego"
+	DetectorEncChain  = "encchain"
 	DetectorFusion    = "fusion"
 )
 

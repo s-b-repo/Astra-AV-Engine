@@ -44,6 +44,7 @@ const textGolden = ` [!] DETECTED (Hash) — samples/wannacry.exe
  Heuristic detections  : 1
  Static detections     : 0
  Stego detections      : 0
+ Encoded-exe detections: 0
  Fused-only detections : 0
  Errors                : 0
  Exit code             : 1 (exit 1: 1 file(s) matched a hash signature or YARA rule)

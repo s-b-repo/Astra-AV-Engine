@@ -52,7 +52,7 @@ directories never.
 | `--no-heuristics` | off | disable the string and API heuristics |
 | `--no-static` | off | disable the static structural pass |
 | `--no-fuzzy` | off | keep the static pass but skip TLSH / ssdeep (faster on large files; disables similarity lookups) |
-| `--no-stego` | off | disable the invisible-codepoint pass |
+| `--no-encchain`, `--no-stego` | off | disable the invisible-codepoint pass |
 | `--no-fusion` | off | disable the fusion lattice |
 | `--heuristic-threshold N` | 7 | heuristic score at which a file is SUSPICIOUS |
 | `--static-threshold N` | 8 | static anomaly score at which a file is SUSPICIOUS |
@@ -199,7 +199,7 @@ usage error.
 | `--db PATH` | `<manifest dir>/hashes.txt`, else auto-discovered | signature database |
 | `--rules PATH` | auto-discovered | YARA rules |
 | `--fuzzy-db PATH` | `<manifest dir>/fuzzy.txt`, else auto-discovered, else none | fuzzy database |
-| `--no-hash`, `--no-yara`, `--no-heuristics`, `--no-static`, `--no-stego`, `--no-fusion` | | disable a detector |
+| `--no-hash`, `--no-yara`, `--no-heuristics`, `--no-static`, `--no-encchain`, `--no-stego`, `--no-fusion` | | disable a detector |
 | `--heuristic-threshold`, `--static-threshold`, `--stego-threshold` | 7, 8, 4 | thresholds |
 | `--jobs N` | CPUs | samples scanned concurrently |
 | `--on-error exclude\|miss\|fail` | exclude | unscannable samples: leave out, count as false negatives, or abort |

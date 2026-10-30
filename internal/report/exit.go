@@ -138,6 +138,7 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 	breaches := len(in.HeuristicBreach(c.heuristicThreshold))
 	static := len(in.StaticBreach(c.staticThreshold))
 	stego := len(in.StegoBreach(c.stegoThreshold))
+	encchain := len(in.EncChainBreach(c.encChainThreshold))
 	fused := len(in.FusionCorroborated())
 
 	// suspicious is the shared tail of the heuristic and clean levels: the
@@ -151,6 +152,8 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the static (structural) threshold %d", ExitThreat, static, c.staticThreshold)
 		case stego > 0:
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the stego (invisible-codepoint) threshold %d", ExitThreat, stego, c.stegoThreshold)
+		case encchain > 0:
+			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) reached the encoded-executable threshold %d", ExitThreat, encchain, c.encChainThreshold)
 		case fused > 0:
 			return ExitThreat, fmt.Sprintf("exit %d: %d file(s) were corroborated suspicious by the fusion of sub-threshold detectors", ExitThreat, fused)
 		}
@@ -159,7 +162,7 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 
 	switch c.failOn {
 	case FailOnNone:
-		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es), %d static breach(es), %d stego breach(es), %d fused)", ExitOK, malicious, breaches, static, stego, fused)
+		return ExitOK, fmt.Sprintf("exit %d: fail-on=none never fails on findings (%d malicious, %d heuristic breach(es), %d static breach(es), %d stego breach(es), %d encoded-executable breach(es), %d fused)", ExitOK, malicious, breaches, static, stego, encchain, fused)
 
 	case FailOnMalicious:
 		if malicious > 0 {
@@ -174,7 +177,7 @@ func (p *ExitPolicy) decide(in Input) (int, string) {
 		if code, why := suspicious(); code != ExitOK {
 			return code, why
 		}
-		return ExitOK, fmt.Sprintf("exit %d: no detections and no heuristic, static, stego or fused breach (fail-on=heuristic)", ExitOK)
+		return ExitOK, fmt.Sprintf("exit %d: no detections and no heuristic, static, stego, encoded-executable or fused breach (fail-on=heuristic)", ExitOK)
 
 	case FailOnClean:
 		if malicious > 0 {

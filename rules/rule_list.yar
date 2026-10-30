@@ -69,9 +69,9 @@ rule generic_ransomware_extensions
         // Extensions alone are useless: Go binaries alone carry ".crypt",
         // ".locked" and ".encrypted" as ordinary identifiers (measured: 18 false
         // positives in /usr/bin). They only count next to a ransom-note name.
-        $ext1 = ".locked" ascii wide
-        $ext2 = ".encrypted" ascii wide
-        $ext3 = ".crypt" ascii wide
+        $ext1 = ".locked" ascii wide nocase
+        $ext2 = ".encrypted" ascii wide nocase
+        $ext3 = ".crypt" ascii wide nocase
         $note1 = "restore_files" ascii wide nocase
         $note2 = "how_to_decrypt" ascii wide nocase
         $note3 = "decrypt_instructions" ascii wide nocase
@@ -105,7 +105,10 @@ rule highly_sus_shellcode
         $peb32b = { 64 8B ( 1D | 0D | 15 | 35 | 3D ) 30 00 00 00 }
         // mov rax, gs:[60h]  (x64 PEB access)
         $peb64 = { 65 48 8B 04 25 60 00 00 00 }
-        // ror 0x0d API hashing loop
+        // ror 0x0d API-hashing loop. This 3-byte atom is deliberately broad and
+        // only counts toward "3 of them", never alone. Tightening it (to the
+        // ROR encodings C8-CF) or lengthening it is a recall-affecting change
+        // that needs a shellcode corpus to measure first; see PLAN Phase 1.
         $ror13 = { C1 C? 0D }
 
     condition:

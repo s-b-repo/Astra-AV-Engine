@@ -1,7 +1,9 @@
 # ATT&CK coverage expectation for the shipped detection content.
 # Re-record with: cau coverage --expect <this file> --record
-# A covered row that loses its content fails the gate (regression);
-# a gap row that gains content fails it too (record the change on purpose).
+# States: covered | partial (covered, acknowledged incomplete) |
+#         gap (planned, no content yet) | none (owned by sensor/console).
+# A covered/partial row that loses its content fails the gate (regression);
+# a gap/none row that gains content fails it too (record the change on purpose).
 #
 # technique   state     note
 T1003       covered   OS Credential Dumping (heuristic, yara)
@@ -11,7 +13,7 @@ T1027.002   covered   Obfuscated Files or Information: Software Packing (static)
 T1027.007   covered   Obfuscated Files or Information: Dynamic API Resolution (static, yara)
 T1027.009   covered   Obfuscated Files or Information: Embedded Payloads (static)
 T1027.010   covered   Obfuscated Files or Information: Command Obfuscation (heuristic)
-T1027.013   gap       Encrypted/Encoded File: the stego pass reports T1027; peeling encoded layers is NOVEL-012 (PLAN Phase 10)
+T1027.013   covered   Obfuscated Files or Information: Encrypted/Encoded File (encchain)
 T1036       covered   Masquerading (static)
 T1036.001   covered   Masquerading: Invalid Code Signature (static)
 T1055       covered   Process Injection (heuristic)
@@ -29,7 +31,7 @@ T1082       partial   System Information Discovery: string/import patterns only,
 T1087       covered   Account Discovery (heuristic)
 T1105       covered   Ingress Tool Transfer (heuristic)
 T1134       covered   Access Token Manipulation (heuristic)
-T1140       gap       Deobfuscate/Decode Files or Information: no decode analytic; the bounded peeler is NOVEL-012 (PLAN Phase 10)
+T1140       covered   Deobfuscate/Decode Files or Information (encchain)
 T1218       covered   System Binary Proxy Execution (heuristic)
 T1486       covered   Data Encrypted for Impact (heuristic, yara)
 T1490       covered   Inhibit System Recovery (heuristic)

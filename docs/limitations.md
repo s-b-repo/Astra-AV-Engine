@@ -26,6 +26,7 @@ exists so the demonstration can be measured.
 | Static (ELF) | launcher stubs with three or fewer substantive imports (`node`, `gvpr`, `selinuxenabled`); vendor executable sections with non-compiler names (libGL `wtext`, absl `malloc_hook`); one old build with an executable stack; one archiver with an appended data block. Sanitizer runtimes, `libeatmydata` and sudo's noexec shims are named as known libc interposers and not scored | 21 of 4,974 ELF files under Kali's `/usr/bin`, `/usr/sbin`, `/usr/lib/x86_64-linux-gnu`, `/usr/libexec` and `/usr/lib/systemd` carry one weight-1 observation; 0 reach the threshold; 40 of 40 signed kernel modules score 0; a UPX-packed `ls` scores 6/8 |
 | Stego | a stray ZERO WIDTH SPACE pasted into documentation or a translation file; source files that enumerate Unicode categories (regular-expression libraries, identifier tables); a stray byte-order mark mid-file | 70 of 70,102 benign text artifacts (0.10 %) |
 | Fusion | none observed | 0 fused-only detections on the tool set |
+| Encoded executable | embedded encoded binaries in security tooling and exploit docs (impacket, lsassy, nxc, metasploit) — genuine encoded executables, flagged as designed | 32 of 159,339 benign files (0.020 %) |
 
 ## Detection robustness (measured)
 

@@ -7,10 +7,13 @@ cut a tagged release yet, so everything is under Unreleased.
 ## Unreleased
 
 ### Fixed
-- **wannacry YARA rule was case-sensitive** while the others carry `nocase`:
-  a case-folded sample evaded it. Surfaced by the new detection-robustness
-  harness and closed by adding `nocase` to its (highly specific) indicator
-  strings; the eval gate confirms no recall or false-positive change.
+- **Two YARA rules were case-sensitive** where the rest carry `nocase`, so a
+  case-folded sample evaded them: the wannacry rule's indicator strings and
+  the generic-ransomware rule's extension strings (`.locked`, `.encrypted`,
+  `.crypt`; its ransom-note strings were already `nocase`, and the note
+  co-requirement keeps false positives down). Both surfaced by the
+  detection-robustness harness and closed with `nocase`; the eval gate
+  confirms unchanged recall and zero new false positives.
 - **ELF parser out-of-bounds read (panic on hostile input).** A relocatable
   object whose `.symtab` declared a sub-minimum `sh_entsize` let the per-entry
   guard pass while the parser read a fixed-size `Elf64_Sym`, panicking on a
@@ -35,7 +38,14 @@ cut a tagged release yet, so everything is under Unreleased.
   benign-transform envelope (case, UTF-16 widening, NUL-infixing, junk
   padding, base64) each string/import detector survives on synthetic
   fixtures, locks in the true positives, and fails if a bundled rule becomes
-  brittle. It found the wannacry case-sensitivity gap above.
+  brittle. It found the wannacry case-sensitivity gap above. Companion
+  harnesses cover the other two content detectors: the structural pass
+  (`scanner/static`, a dropper profile stays detected when benign data is
+  appended) and the stego pass (`scanner/stego`, an invisible-codepoint dead
+  drop stays detected when wrapped in text or re-encoded as UTF-16). The YARA
+  harness covers the wannacry, mimikatz, lokibot, generic-ransomware and
+  obfuscated-powershell rules (every string-based bundled rule);
+  it found both case-sensitivity gaps above.
 - Per-file panic isolation in `Engine.ScanFile`: a panic in any detector
   degrades to a per-file error result instead of crashing the whole scan, so
   one hostile file can never drop the rest of a directory batch. Test:
